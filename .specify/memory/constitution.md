@@ -1,50 +1,89 @@
-# [PROJECT_NAME] Constitution
-<!-- Example: Spec Constitution, TaskFlow Constitution, etc. -->
+<!--
+Sync Impact Report
+- Version change: 未版本化模板 -> 1.0.0
+- Modified principles:
+  - 模板原则 1 -> I. MVP 核心路径优先
+  - 模板原则 2 -> II. 岗位档案驱动的 AI 反馈闭环
+  - 模板原则 3 -> III. 既有技术栈与组件复用
+  - 模板原则 4 -> IV. 简单实现优先于抽象扩展
+  - 模板原则 5 -> V. 静态质量闸门与中文文档
+- Added sections:
+  - 产品边界
+  - 开发流程
+- Removed sections:
+  - 无
+- Templates requiring updates:
+  - updated: .specify/templates/plan-template.md
+  - updated: .specify/templates/spec-template.md
+  - updated: .specify/templates/tasks-template.md
+  - pending: .specify/templates/commands/*.md（目录不存在，无需处理）
+- Runtime docs updated:
+  - updated: README.md
+  - updated: docs/AI_HANDOFF.md
+  - updated: CLAUDE.md
+- Deferred TODOs:
+  - 无
+-->
+# JobLoop 宪章
 
 ## Core Principles
 
-### [PRINCIPLE_1_NAME]
-<!-- Example: I. Library-First -->
-[PRINCIPLE_1_DESCRIPTION]
-<!-- Example: Every feature starts as a standalone library; Libraries must be self-contained, independently testable, documented; Clear purpose required - no organizational-only libraries -->
+### I. MVP 核心路径优先
+所有需求、方案和实现都必须优先服务 JobLoop 的 P0 闭环：新增岗位、录入 JD 与简历、
+生成匹配分析、沉淀岗位档案、记录面试反馈、生成复盘与下一步建议、更新岗位状态。
+任何不直接强化这条闭环的能力，都必须默认延后，除非在规格文档中明确说明其对当前
+MVP 的必要性。理由：项目目标是尽快验证“求职进展反馈式 AI 工作台”的核心价值，
+而不是同时铺开周边能力。
 
-### [PRINCIPLE_2_NAME]
-<!-- Example: II. CLI Interface -->
-[PRINCIPLE_2_DESCRIPTION]
-<!-- Example: Every library exposes functionality via CLI; Text in/out protocol: stdin/args → stdout, errors → stderr; Support JSON + human-readable formats -->
+### II. 岗位档案驱动的 AI 反馈闭环
+每一条 AI 输出都必须绑定到具体岗位档案，输入来源必须能追溯到简历、JD、面试反馈
+或岗位阶段信息之一；输出结果必须帮助用户完成下一步求职决策，而不是生成脱离上下文
+的一次性泛化内容。理由：JobLoop 的产品价值来自持续积累后的反馈闭环，而非单次对话。
 
-### [PRINCIPLE_3_NAME]
-<!-- Example: III. Test-First (NON-NEGOTIABLE) -->
-[PRINCIPLE_3_DESCRIPTION]
-<!-- Example: TDD mandatory: Tests written → User approved → Tests fail → Then implement; Red-Green-Refactor cycle strictly enforced -->
+### III. 既有技术栈与组件复用
+实现必须基于 Next.js App Router、TypeScript 和 npm 工作流；静态质量检查以
+Biome 与 TypeScript 为准。UI 优先复用现有 shadcn/ui 组件、主题 token 与
+`lucide-react` 图标，避免引入与当前栈重叠的新 UI 体系。理由：固定技术边界能缩短
+交付路径，减少 MVP 阶段的维护成本。
 
-### [PRINCIPLE_4_NAME]
-<!-- Example: IV. Integration Testing -->
-[PRINCIPLE_4_DESCRIPTION]
-<!-- Example: Focus areas requiring integration tests: New library contract tests, Contract changes, Inter-service communication, Shared schemas -->
+### IV. 简单实现优先于抽象扩展
+代码必须围绕当前需求做最短实现，不为未来假设场景预埋复杂抽象，不因“可能出错”
+而堆叠防御性分支，不进行与当前目标无关的重构。仅当同一问题已经在当前范围内重复出
+现，且抽取能直接降低实现复杂度时，才允许做有限复用。理由：MVP 阶段的首要任务是
+验证核心路径，而不是投资长期演化架构。
 
-### [PRINCIPLE_5_NAME]
-<!-- Example: V. Observability, VI. Versioning & Breaking Changes, VII. Simplicity -->
-[PRINCIPLE_5_DESCRIPTION]
-<!-- Example: Text I/O ensures debuggability; Structured logging required; Or: MAJOR.MINOR.BUILD format; Or: Start simple, YAGNI principles -->
+### V. 静态质量闸门与中文文档
+所有项目文档、规格、计划、任务和交接材料必须使用中文编写。功能完成的最低交付标准
+是：核心路径经过人工验证，且仓库通过 `npm run quality` 或等效静态检查；默认不要求
+补测试、不考虑无障碍，也不追加超出需求的健壮性工程，除非功能规格显式提出。理由：
+当前阶段以高信噪比交付为目标，质量门槛应聚焦于可验证的核心路径和静态正确性。
 
-## [SECTION_2_NAME]
-<!-- Example: Additional Constraints, Security Requirements, Performance Standards, etc. -->
+## 产品边界
 
-[SECTION_2_CONTENT]
-<!-- Example: Technology stack requirements, compliance standards, deployment policies, etc. -->
+JobLoop 的 P0 页面限定为总览仪表盘、新增岗位、岗位档案、面试反馈录入与分析报告页。
+P0 的 AI 能力限定为 JD 与简历匹配分析、结构化提取、面试反馈复盘、下一步准备建议，
+以及可选的模拟面试问题生成。以下事项默认不在 P0 范围内：批量自动投递、全网爬取岗
+位、复杂 Agent、自定义深度研究、复杂 Word/PDF 导出、公司全量情报分析。任何计划
+超出这些边界，必须在规格与计划中明确标注为“偏离宪章”，并给出业务必要性。
 
-## [SECTION_3_NAME]
-<!-- Example: Development Workflow, Review Process, Quality Gates, etc. -->
+## 开发流程
 
-[SECTION_3_CONTENT]
-<!-- Example: Code review requirements, testing gates, deployment approval process, etc. -->
+每个功能必须先形成中文 spec，再形成中文 plan 与 tasks，并在 plan 中逐条完成宪章检
+查。任务拆分必须围绕独立用户故事组织，优先保证 P1 用户故事可以单独交付。实现过程
+中应避免提交无关重构和生成物，文档、代码与任务描述都要使用真实路径和明确范围。交
+付说明中必须写明人工验证的核心路径，以及是否已执行 `npm run quality`。
 
 ## Governance
-<!-- Example: Constitution supersedes all other practices; Amendments require documentation, approval, migration plan -->
 
-[GOVERNANCE_RULES]
-<!-- Example: All PRs/reviews must verify compliance; Complexity must be justified; Use [GUIDANCE_FILE] for runtime development guidance -->
+本宪章优先于仓库中的其他流程性说明；若出现冲突，以本宪章为准，并在后续同步修正文
+档。宪章修订采用语义化版本：
 
-**Version**: [CONSTITUTION_VERSION] | **Ratified**: [RATIFICATION_DATE] | **Last Amended**: [LAST_AMENDED_DATE]
-<!-- Example: Version: 2.1.1 | Ratified: 2025-06-13 | Last Amended: 2025-07-16 -->
+- MAJOR：删除原则、重新定义原则，或引入与现有交付方式不兼容的治理变更。
+- MINOR：新增原则、边界或流程要求，且对团队约束有实质扩展。
+- PATCH：措辞澄清、格式修复、非语义性补充。
+
+所有 spec、plan、tasks 与交付说明在落盘前都必须检查是否满足本宪章。若存在偏离，
+必须在对应文档中显式记录原因、收益与简化方案为何不可行。宪章修订需在同一次变更中
+同步更新相关模板与运行文档，并将 `LAST_AMENDED_DATE` 更新为实际修订日期。
+
+**Version**: 1.0.0 | **Ratified**: 2026-07-01 | **Last Amended**: 2026-07-01

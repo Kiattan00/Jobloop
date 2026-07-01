@@ -1,113 +1,87 @@
-# Implementation Plan: [FEATURE]
+# 实施计划：[FEATURE]
 
-**Branch**: `[###-feature-name]` | **Date**: [DATE] | **Spec**: [link]
+**分支**：`[###-feature-name]` | **日期**：[DATE] | **规格**：[link]
 
-**Input**: Feature specification from `/specs/[###-feature-name]/spec.md`
+**输入**：来自 `/specs/[###-feature-name]/spec.md` 的功能规格
 
-**Note**: This template is filled in by the `/speckit-plan` command. See `.specify/templates/plan-template.md` for the execution workflow.
+**说明**：本模板由 `/speckit-plan` 命令填写，内容必须使用中文。
 
-## Summary
+## 概述
 
-[Extract from feature spec: primary requirement + technical approach from research]
+[从功能规格中提炼：核心需求、方案摘要、预计交付路径]
 
-## Technical Context
+## 技术上下文
 
-<!--
-  ACTION REQUIRED: Replace the content in this section with the technical details
-  for the project. The structure here is presented in advisory capacity to guide
-  the iteration process.
--->
+**语言/版本**：TypeScript 5.x、React 19、Next.js 16 App Router [如有偏离需说明]
 
-**Language/Version**: [e.g., Python 3.11, Swift 5.9, Rust 1.75 or NEEDS CLARIFICATION]
+**主要依赖**：Next.js、shadcn/ui、`lucide-react`、Biome、TypeScript
 
-**Primary Dependencies**: [e.g., FastAPI, UIKit, LLVM or NEEDS CLARIFICATION]
+**存储**：[如适用，填写本次功能使用的本地存储、数据库或 N/A]
 
-**Storage**: [if applicable, e.g., PostgreSQL, CoreData, files or N/A]
+**测试策略**：默认不新增测试；仅当功能规格明确要求时补充，并说明范围
 
-**Testing**: [e.g., pytest, XCTest, cargo test or NEEDS CLARIFICATION]
+**目标平台**：现代桌面与移动浏览器
 
-**Target Platform**: [e.g., Linux server, iOS 15+, WASM or NEEDS CLARIFICATION]
+**项目类型**：单体 Web 应用
 
-**Project Type**: [e.g., library/cli/web-service/mobile-app/compiler/desktop-app or NEEDS CLARIFICATION]
+**性能目标**：[围绕当前功能填写，如首屏体验、响应时间、生成等待预期]
 
-**Performance Goals**: [domain-specific, e.g., 1000 req/s, 10k lines/sec, 60 fps or NEEDS CLARIFICATION]
+**约束**：必须围绕 MVP 核心路径；避免过度抽象和防御性编程；交付前需通过
+`npm run quality`
 
-**Constraints**: [domain-specific, e.g., <200ms p95, <100MB memory, offline-capable or NEEDS CLARIFICATION]
+**规模/范围**：[本次功能涉及的页面、数据实体、AI 调用范围]
 
-**Scale/Scope**: [domain-specific, e.g., 10k users, 1M LOC, 50 screens or NEEDS CLARIFICATION]
+## 宪章检查
 
-## Constitution Check
+*门禁：进入详细设计前必须通过，Phase 1 设计完成后再次复核。*
 
-*GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.*
+- [ ] 本次范围直接服务“新增岗位 -> 生成分析 -> 沉淀档案 -> 录入反馈 -> 生成下一步建议”
+  的核心闭环；若有偏离，已明确写出原因
+- [ ] 所有 AI 输出都绑定具体岗位档案，并能支持用户下一步决策
+- [ ] 实现保持在 Next.js App Router + TypeScript + npm + shadcn/ui 既有栈内
+- [ ] 方案未引入与当前需求无关的抽象层、通用框架或防御性复杂逻辑
+- [ ] 所有文档与交付说明使用中文
+- [ ] 已明确核心路径的人工验证方式，以及 `npm run quality` 的执行节点
 
-[Gates determined based on constitution file]
+## 项目结构
 
-## Project Structure
-
-### Documentation (this feature)
+### 功能文档
 
 ```text
 specs/[###-feature]/
-├── plan.md              # This file (/speckit-plan command output)
-├── research.md          # Phase 0 output (/speckit-plan command)
-├── data-model.md        # Phase 1 output (/speckit-plan command)
-├── quickstart.md        # Phase 1 output (/speckit-plan command)
-├── contracts/           # Phase 1 output (/speckit-plan command)
-└── tasks.md             # Phase 2 output (/speckit-tasks command - NOT created by /speckit-plan)
+├── plan.md
+├── research.md
+├── data-model.md
+├── quickstart.md
+├── contracts/
+└── tasks.md
 ```
 
-### Source Code (repository root)
-<!--
-  ACTION REQUIRED: Replace the placeholder tree below with the concrete layout
-  for this feature. Delete unused options and expand the chosen structure with
-  real paths (e.g., apps/admin, packages/something). The delivered plan must
-  not include Option labels.
--->
+### 仓库结构
 
 ```text
-# [REMOVE IF UNUSED] Option 1: Single project (DEFAULT)
-src/
-├── models/
-├── services/
-├── cli/
-└── lib/
+app/
+├── layout.tsx
+├── page.tsx
+└── [feature-routes]/
 
-tests/
-├── contract/
-├── integration/
-└── unit/
+components/
+├── ui/
+└── [feature-components]/
 
-# [REMOVE IF UNUSED] Option 2: Web application (when "frontend" + "backend" detected)
-backend/
-├── src/
-│   ├── models/
-│   ├── services/
-│   └── api/
-└── tests/
+lib/
+└── [shared-utils-or-domain-helpers]
 
-frontend/
-├── src/
-│   ├── components/
-│   ├── pages/
-│   └── services/
-└── tests/
-
-# [REMOVE IF UNUSED] Option 3: Mobile + API (when "iOS/Android" detected)
-api/
-└── [same as backend above]
-
-ios/ or android/
-└── [platform-specific structure: feature modules, UI flows, platform tests]
+docs/
+└── [feature-docs-if-needed]
 ```
 
-**Structure Decision**: [Document the selected structure and reference the real
-directories captured above]
+**结构决策**：[说明本次功能新增或修改的真实目录，并解释为何保持当前简单结构即可]
 
-## Complexity Tracking
+## 复杂度记录
 
-> **Fill ONLY if Constitution Check has violations that must be justified**
+> 仅当“宪章检查”存在未通过项，但因业务需要必须继续时填写
 
-| Violation | Why Needed | Simpler Alternative Rejected Because |
-|-----------|------------|-------------------------------------|
-| [e.g., 4th project] | [current need] | [why 3 projects insufficient] |
-| [e.g., Repository pattern] | [specific problem] | [why direct DB access insufficient] |
+| 偏离项 | 必要性 | 更简单方案为何不可行 |
+|--------|--------|----------------------|
+| [例如：新增通用数据层] | [当前需求压力] | [为什么直接在页面/模块内实现不够] |

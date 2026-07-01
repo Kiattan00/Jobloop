@@ -1,1 +1,1 @@
-@AGENTS.md
+请优先遵循 `AGENTS.md` 中的项目与协作约束。

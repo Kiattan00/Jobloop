@@ -1,131 +1,111 @@
-# Feature Specification: [FEATURE NAME]
+# 功能规格：[FEATURE NAME]
 
-**Feature Branch**: `[###-feature-name]`
+**功能分支**：`[###-feature-name]`
 
-**Created**: [DATE]
+**创建日期**：[DATE]
 
-**Status**: Draft
+**状态**：草稿
 
-**Input**: User description: "$ARGUMENTS"
+**输入**：用户描述：“$ARGUMENTS”
 
-## User Scenarios & Testing *(mandatory)*
+## 用户场景与验收（必填）
 
-<!--
-  IMPORTANT: User stories should be PRIORITIZED as user journeys ordered by importance.
-  Each user story/journey must be INDEPENDENTLY TESTABLE - meaning if you implement just ONE of them,
-  you should still have a viable MVP (Minimum Viable Product) that delivers value.
+> 说明：
+> - 用户故事必须按优先级排序，P1 代表最先交付的 MVP 切片
+> - 每个用户故事都必须可以独立验收，即只实现这一条也能产生明确价值
+> - 本项目默认不要求编写测试，这里的“独立验收”指人工可验证的完整使用路径
 
-  Assign priorities (P1, P2, P3, etc.) to each story, where P1 is the most critical.
-  Think of each story as a standalone slice of functionality that can be:
-  - Developed independently
-  - Tested independently
-  - Deployed independently
-  - Demonstrated to users independently
--->
+### 用户故事 1 - [简短标题]（优先级：P1）
 
-### User Story 1 - [Brief Title] (Priority: P1)
+[用自然语言描述这条用户旅程]
 
-[Describe this user journey in plain language]
+**优先级原因**：[解释为什么它最重要]
 
-**Why this priority**: [Explain the value and why it has this priority level]
+**独立验收方式**：[描述如何单独验证这条故事已经成立，以及它带来的价值]
 
-**Independent Test**: [Describe how this can be tested independently - e.g., "Can be fully tested by [specific action] and delivers [specific value]"]
+**验收场景**：
 
-**Acceptance Scenarios**:
-
-1. **Given** [initial state], **When** [action], **Then** [expected outcome]
-2. **Given** [initial state], **When** [action], **Then** [expected outcome]
+1. **给定** [初始状态]，**当** [用户动作]，**则** [预期结果]
+2. **给定** [初始状态]，**当** [用户动作]，**则** [预期结果]
 
 ---
 
-### User Story 2 - [Brief Title] (Priority: P2)
+### 用户故事 2 - [简短标题]（优先级：P2）
 
-[Describe this user journey in plain language]
+[描述第二条用户旅程]
 
-**Why this priority**: [Explain the value and why it has this priority level]
+**优先级原因**：[解释价值与排序]
 
-**Independent Test**: [Describe how this can be tested independently]
+**独立验收方式**：[描述如何单独验证]
 
-**Acceptance Scenarios**:
+**验收场景**：
 
-1. **Given** [initial state], **When** [action], **Then** [expected outcome]
-
----
-
-### User Story 3 - [Brief Title] (Priority: P3)
-
-[Describe this user journey in plain language]
-
-**Why this priority**: [Explain the value and why it has this priority level]
-
-**Independent Test**: [Describe how this can be tested independently]
-
-**Acceptance Scenarios**:
-
-1. **Given** [initial state], **When** [action], **Then** [expected outcome]
+1. **给定** [初始状态]，**当** [用户动作]，**则** [预期结果]
 
 ---
 
-[Add more user stories as needed, each with an assigned priority]
+### 用户故事 3 - [简短标题]（优先级：P3）
 
-### Edge Cases
+[描述第三条用户旅程]
 
-<!--
-  ACTION REQUIRED: The content in this section represents placeholders.
-  Fill them out with the right edge cases.
--->
+**优先级原因**：[解释价值与排序]
 
-- What happens when [boundary condition]?
-- How does system handle [error scenario]?
+**独立验收方式**：[描述如何单独验证]
 
-## Requirements *(mandatory)*
+**验收场景**：
 
-<!--
-  ACTION REQUIRED: The content in this section represents placeholders.
-  Fill them out with the right functional requirements.
--->
+1. **给定** [初始状态]，**当** [用户动作]，**则** [预期结果]
 
-### Functional Requirements
+---
 
-- **FR-001**: System MUST [specific capability, e.g., "allow users to create accounts"]
-- **FR-002**: System MUST [specific capability, e.g., "validate email addresses"]
-- **FR-003**: Users MUST be able to [key interaction, e.g., "reset their password"]
-- **FR-004**: System MUST [data requirement, e.g., "persist user preferences"]
-- **FR-005**: System MUST [behavior, e.g., "log all security events"]
+[如有需要可继续补充更多用户故事]
 
-*Example of marking unclear requirements:*
+### 边界情况
 
-- **FR-006**: System MUST authenticate users via [NEEDS CLARIFICATION: auth method not specified - email/password, SSO, OAuth?]
-- **FR-007**: System MUST retain user data for [NEEDS CLARIFICATION: retention period not specified]
+- 当 [边界条件] 出现时，系统如何保持核心路径可继续？
+- 当 [错误场景] 发生时，用户会看到什么，以及下一步如何继续？
 
-### Key Entities *(include if feature involves data)*
+## 需求（必填）
 
-- **[Entity 1]**: [What it represents, key attributes without implementation]
-- **[Entity 2]**: [What it represents, relationships to other entities]
+### 功能需求
 
-## Success Criteria *(mandatory)*
+- **FR-001**：系统必须 [具体能力]
+- **FR-002**：系统必须 [具体能力]
+- **FR-003**：用户必须能够 [关键操作]
+- **FR-004**：系统必须 [数据沉淀或状态更新要求]
+- **FR-005**：系统必须 [与 AI 输出、岗位档案或流程相关的行为]
 
-<!--
-  ACTION REQUIRED: Define measurable success criteria.
-  These must be technology-agnostic and measurable.
--->
+如有信息缺失，使用以下格式显式标注：
 
-### Measurable Outcomes
+- **FR-XXX**：系统必须 [NEEDS CLARIFICATION: 需要补充的具体问题]
 
-- **SC-001**: [Measurable metric, e.g., "Users can complete account creation in under 2 minutes"]
-- **SC-002**: [Measurable metric, e.g., "System handles 1000 concurrent users without degradation"]
-- **SC-003**: [User satisfaction metric, e.g., "90% of users successfully complete primary task on first attempt"]
-- **SC-004**: [Business metric, e.g., "Reduce support tickets related to [X] by 50%"]
+### 关键实体（涉及数据时必填）
 
-## Assumptions
+- **[实体 1]**：[它代表什么，包含哪些关键属性，不写实现细节]
+- **[实体 2]**：[它与其他实体的关系、在流程中的作用]
 
-<!--
-  ACTION REQUIRED: The content in this section represents placeholders.
-  Fill them out with the right assumptions based on reasonable defaults
-  chosen when the feature description did not specify certain details.
--->
+## 成功标准（必填）
 
-- [Assumption about target users, e.g., "Users have stable internet connectivity"]
-- [Assumption about scope boundaries, e.g., "Mobile support is out of scope for v1"]
-- [Assumption about data/environment, e.g., "Existing authentication system will be reused"]
-- [Dependency on existing system/service, e.g., "Requires access to the existing user profile API"]
+### 可衡量结果
+
+- **SC-001**：[围绕核心路径的可衡量结果]
+- **SC-002**：[围绕效率、准确性或完成率的可衡量结果]
+- **SC-003**：[围绕用户决策支持价值的可衡量结果]
+- **SC-004**：[围绕交付范围或质量门槛的可衡量结果]
+
+## 范围边界（必填）
+
+### 本次纳入范围
+
+- [本次功能明确覆盖的页面、流程、AI 输出或数据更新]
+
+### 本次不纳入范围
+
+- [明确排除的能力，尤其是与 MVP 无关的扩展项]
+
+## 假设
+
+- [关于目标用户的假设]
+- [关于数据来源或环境的假设]
+- [关于技术限制或依赖的假设]
+- [关于与现有能力衔接方式的假设]

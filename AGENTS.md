@@ -1,5 +1,6 @@
 # 开发说明
 
+- 开发原则以 [`./.specify/memory/constitution.md`](./.specify/memory/constitution.md) 为准；如与其他说明冲突，优先遵循该宪章。
 - 本项目是 Next.js App Router + TypeScript + Biome + shadcn/ui 项目，使用 npm。
 - 常用命令：`npm run dev`、`npm run build`、`npm run format`、`npm run lint:fix`、`npm run typecheck`、`npm run quality`。
 - 提交前 hook 会自动执行 `npm run quality`：格式化、Biome safe fix、TypeScript 检查，并重新暂存修复后的文件。
