@@ -2,6 +2,8 @@
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 
+@source "../components";
+
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
@@ -127,5 +129,41 @@
   }
   html {
     @apply font-sans;
+  }
+}
+
+@layer components {
+  .jobloop-bg {
+    background:
+      linear-gradient(
+        90deg,
+        rgba(0, 0, 0, 0.76),
+        rgba(0, 0, 0, 0.2),
+        rgba(0, 0, 0, 0.7)
+      ),
+      url("https://images.unsplash.com/photo-1521587760476-6c12a4b040da?auto=format&fit=crop&w=1800&q=80");
+    background-position: center;
+    background-size: cover;
+  }
+
+  .jobloop-bg::before {
+    position: absolute;
+    inset: 0;
+    content: "";
+    background:
+      radial-gradient(
+        circle at 50% 6%,
+        rgba(255, 255, 255, 0.2),
+        transparent 30%
+      ), linear-gradient(180deg, transparent, rgba(0, 0, 0, 0.52));
+    pointer-events: none;
+  }
+
+  .jobloop-focus-ring {
+    @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200/70 focus-visible:ring-offset-2 focus-visible:ring-offset-black;
+  }
+
+  .jobloop-glass-divider {
+    @apply border-white/14;
   }
 }
