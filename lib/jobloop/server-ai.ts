@@ -17,6 +17,8 @@ import type {
 
 const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
 const DEFAULT_MODEL = "deepseek/deepseek-v4-flash";
+const DEPLOYMENT_FAST_MODE =
+  process.env.NETLIFY === "true" || process.env.AI_FAST_MODE === "true";
 const DETAIL_SYSTEM = `
 你是 JobLoop 的高级求职顾问，擅长从招聘视角拆解岗位本质。你的任务是为候选人生成一份**深度、可执行**的单岗位分析报告。
 
@@ -118,6 +120,10 @@ function getDefaultHeaders() {
     "HTTP-Referer": process.env.OPENROUTER_SITE_URL || "http://localhost:3001",
     "X-OpenRouter-Title": process.env.OPENROUTER_APP_NAME || "JobLoop",
   };
+}
+
+function shouldSkipOptionalAiPasses() {
+  return DEPLOYMENT_FAST_MODE;
 }
 
 function getClient() {
@@ -706,11 +712,14 @@ async function buildCompanyResearch(job: JobJd) {
 
 export async function generateResumeVersionsWithAi(sourceResume: SourceResume) {
   let searchContext: ResumeSearchContext | null = null;
+  const fastMode = shouldSkipOptionalAiPasses();
 
-  try {
-    searchContext = await buildResumeSearchContext(sourceResume);
-  } catch (error) {
-    console.error("Failed to build resume search context", error);
+  if (!fastMode) {
+    try {
+      searchContext = await buildResumeSearchContext(sourceResume);
+    } catch (error) {
+      console.error("Failed to build resume search context", error);
+    }
   }
 
   const baseSystem =
@@ -774,8 +783,9 @@ export async function generateResumeVersionsWithAi(sourceResume: SourceResume) {
   );
 
   const finalVersions =
-    firstPass.some((version) => !isUsableResumeContent(version.content)) ||
-    firstPassRedFlags.length > 0
+    !fastMode &&
+    (firstPass.some((version) => !isUsableResumeContent(version.content)) ||
+      firstPassRedFlags.length > 0)
       ? (
           await requestJson<{
             versions: Array<{
@@ -813,6 +823,10 @@ export async function generateResumeVersionsWithAi(sourceResume: SourceResume) {
   }));
 
   for (const version of versions) {
+    if (fastMode) {
+      continue;
+    }
+
     const redFlags = findResumeRedFlags(version.content, sourceResume.content);
 
     if (redFlags.length > 0) {
