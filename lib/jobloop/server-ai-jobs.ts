@@ -16,6 +16,8 @@ import type {
 
 const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
 const DEFAULT_MODEL = "deepseek/deepseek-v4-flash";
+const DEPLOYMENT_FAST_MODE =
+  process.env.NETLIFY === "true" || process.env.AI_FAST_MODE === "true";
 const DETAIL_SYSTEM = `
 你是 JobLoop 的高级求职顾问，擅长从招聘视角拆解岗位本质。你的任务是为候选人生成一份**深度、可执行**的单岗位分析报告。
 
@@ -176,6 +178,40 @@ function parseSearchCitations(message: {
 
 function clampScore(value: number) {
   return Math.max(0, Math.min(100, Math.round(value)));
+}
+
+function extractBulletLikeSections(jdText: string, limit: number) {
+  return jdText
+    .split(/\r?\n|[;；]/)
+    .map((item) => item.trim().replace(/^[-*•\d.\s]+/, ""))
+    .filter((item) => item.length >= 6)
+    .slice(0, limit);
+}
+
+function extractStructuredJdQuick(job: JobJd): StructuredJd {
+  return {
+    companyName: job.companyName,
+    jobTitle: job.jobTitle,
+    responsibilities: extractBulletLikeSections(job.jdText, 6),
+    skillRequirements: extractBulletLikeSections(job.jdText, 8),
+    benefits: [],
+    sourceUrl: job.jobUrl,
+    rawSummary: job.jdText.slice(0, 600),
+  };
+}
+
+function buildFallbackCompanyResearch(): CompanyResearch {
+  return {
+    industry: "待补充",
+    companyScale: "待补充",
+    mainBusiness: "待补充",
+    keyProducts: [],
+    reputation: "待补充",
+    summary:
+      "Current deployment skipped online company enrichment and used the JD text directly.",
+    searchedAt: createTimestamp(),
+    citations: [],
+  };
 }
 
 function normalizeMatchText(text: string) {
@@ -489,24 +525,29 @@ export async function generateBatchAnalysisWithAi(
   jobs: JobJd[],
   resumeVersions: ResumeVersion[],
 ) {
+  const fastMode = DEPLOYMENT_FAST_MODE;
   const enrichedJobs = await Promise.all(
     jobs.map(async (job) => {
-      const structuredJd = await extractStructuredJd(job);
-      let companyResearch: CompanyResearch;
+      const structuredJd = fastMode
+        ? extractStructuredJdQuick(job)
+        : await extractStructuredJd(job);
+      let companyResearch: CompanyResearch = buildFallbackCompanyResearch();
 
-      try {
-        companyResearch = await buildCompanyResearch(job);
-      } catch {
-        companyResearch = {
-          industry: "待补充",
-          companyScale: "待补充",
-          mainBusiness: "待补充",
-          keyProducts: [],
-          reputation: "待补充",
-          summary: "公司补充信息获取失败，本次分析基于现有 JD 内容完成。",
-          searchedAt: createTimestamp(),
-          citations: [],
-        };
+      if (!fastMode) {
+        try {
+          companyResearch = await buildCompanyResearch(job);
+        } catch {
+          companyResearch = {
+            industry: "待补充",
+            companyScale: "待补充",
+            mainBusiness: "待补充",
+            keyProducts: [],
+            reputation: "待补充",
+            summary: "公司补充信息获取失败，本次分析基于现有 JD 内容完成。",
+            searchedAt: createTimestamp(),
+            citations: [],
+          };
+        }
       }
 
       return {
