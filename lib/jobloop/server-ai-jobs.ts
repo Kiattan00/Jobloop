@@ -366,7 +366,7 @@ function normalizeAnalysisRecord(
 async function extractStructuredJd(job: JobJd) {
   const { data } = await requestJson<{ structuredJd: StructuredJd }>({
     system:
-      "你是 JobLoop 的中文 JD 结构化提取助手。只做信息抽取，不做评价，不编造缺失信息。若 JD 未提供某字段，则返回空字符串或空数组。只返回合法 JSON。",
+      "你是 JobLoop 的中文 JD 结构化提取助手。你只做信息抽取，不做评价，不编造缺失信息。必须先确认当前输入只对应 1 份 JD，再从该 JD 中准确抽取公司名称和招聘岗位名称。公司名称不能误填为招聘人姓名、活跃时间、城市、薪资或福利标签；岗位名称不能误填为整段职责、日期、招聘文案或“职位详情”。若 JD 未提供某字段，则返回空字符串或空数组。只返回合法 JSON。",
     prompt: {
       task: "extract_structured_jd",
       outputSchema: {
@@ -511,6 +511,8 @@ export async function generateBatchAnalysisWithAi(
 
       return {
         ...job,
+        companyName: structuredJd.companyName?.trim() || job.companyName,
+        jobTitle: structuredJd.jobTitle?.trim() || job.jobTitle,
         structuredJd,
         companyResearch,
         companyInfo: companyResearch.summary,

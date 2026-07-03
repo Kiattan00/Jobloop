@@ -13,7 +13,9 @@ import {
   parseJdBatchText,
 } from "@/lib/jobloop/jd-parser";
 import {
+  getAnalysisDraftInput,
   getJobLoopState,
+  saveAnalysisDraftInput,
   saveBatchAnalysis,
   saveJdBatchWithJobs,
 } from "@/lib/jobloop/storage";
@@ -35,7 +37,12 @@ export default function AnalysesPage() {
     const current = getJobLoopState();
     setState(current);
     setCurrentBatchId(current.jdBatches[0]?.id ?? null);
+    setInput(getAnalysisDraftInput());
   }, []);
+
+  useEffect(() => {
+    saveAnalysisDraftInput(input);
+  }, [input]);
 
   const hasResumeVersions = (state?.resumeVersions.length ?? 0) > 0;
   const liveDrafts = useMemo(() => parseJdBatchText(input), [input]);

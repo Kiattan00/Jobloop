@@ -62,7 +62,7 @@ export function CurrentAnalysisList({
                   {job.companyName}·{job.jobTitle}
                 </h3>
                 <p className="mt-1 text-sm text-white/56">
-                  推荐简历：{version?.name ?? "未找到"}
+                  推荐简历：{version?.name ?? "未匹配到简历版本"}
                 </p>
               </div>
               <div className="text-right">
@@ -74,9 +74,11 @@ export function CurrentAnalysisList({
                 </span>
               </div>
             </div>
+
             <p className="mt-4 text-sm leading-6 text-white/66">
               {result.summary}
             </p>
+
             <div className="mt-4 grid gap-3 md:grid-cols-2">
               <div className="rounded-md border border-white/14 bg-black/12 p-3 text-sm text-white/62">
                 是否需要微调：
@@ -92,6 +94,7 @@ export function CurrentAnalysisList({
                 </span>
               </div>
             </div>
+
             <div className="mt-4 flex flex-wrap gap-3">
               <Link
                 className="inline-flex h-9 items-center justify-center rounded-md border border-cyan-200/60 bg-cyan-300/15 px-3 text-sm font-semibold text-cyan-50"

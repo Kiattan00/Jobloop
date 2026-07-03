@@ -36,12 +36,14 @@ export function JdBatchInput({
           已解析 {parsedCount} 个
         </span>
       </div>
+
       <textarea
         className="mt-5 min-h-80 w-full rounded-lg border border-white/18 bg-black/20 p-4 text-sm leading-6 text-white outline-none placeholder:text-white/35 focus:border-cyan-200/70"
         onChange={(event) => onChange(event.target.value)}
-        placeholder="公司：UrbanTech Studio&#10;岗位：AI 产品经理&#10;链接：https://example.com/job&#10;JD：负责 AI 产品需求、Prompt 体验、数据指标与跨团队协作..."
+        placeholder="公司：示例科技&#10;岗位：AI 产品经理&#10;链接：https://example.com/job&#10;JD：负责 AI 产品需求分析、原型设计、跨团队协作与上线迭代..."
         value={value}
       />
+
       <div className="mt-4 flex flex-wrap gap-3">
         <button
           className="inline-flex h-10 items-center justify-center rounded-md border border-white/24 bg-white/13 px-4 text-sm font-semibold text-white/82 hover:bg-white/18"
@@ -60,6 +62,7 @@ export function JdBatchInput({
           生成岗位分析
         </button>
       </div>
+
       {children ? <div className="mt-4">{children}</div> : null}
     </GlassPanel>
   );

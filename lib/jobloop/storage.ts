@@ -14,6 +14,7 @@ import type {
 } from "./types";
 
 const STORAGE_KEY = "jobloop:p0-state";
+const ANALYSIS_DRAFT_INPUT_KEY = "jobloop:analysis-draft-input";
 
 const isBrowser = () => typeof window !== "undefined";
 
@@ -46,6 +47,22 @@ export function saveJobLoopState(state: JobLoopState) {
     return;
   }
   window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+}
+
+export function getAnalysisDraftInput() {
+  if (!isBrowser()) {
+    return "";
+  }
+
+  return window.localStorage.getItem(ANALYSIS_DRAFT_INPUT_KEY) || "";
+}
+
+export function saveAnalysisDraftInput(value: string) {
+  if (!isBrowser()) {
+    return;
+  }
+
+  window.localStorage.setItem(ANALYSIS_DRAFT_INPUT_KEY, value);
 }
 
 export function upsertSourceResume(sourceResume: SourceResume) {
@@ -189,4 +206,5 @@ export function clearJobLoopState() {
     return;
   }
   window.localStorage.removeItem(STORAGE_KEY);
+  window.localStorage.removeItem(ANALYSIS_DRAFT_INPUT_KEY);
 }

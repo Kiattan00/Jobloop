@@ -1817,3 +1817,26 @@
  GET /analyses 200 in 641ms (next.js: 58ms, application-code: 583ms)
  GET /analyses 200 in 900ms (next.js: 10ms, application-code: 890ms)
  GET /analyses 200 in 1040ms (next.js: 161ms, application-code: 878ms)
+✓ Compiled in 132ms
+ GET /analyses 200 in 216ms (next.js: 144ms, application-code: 71ms)
+✓ Compiled in 161ms
+ GET /analyses 200 in 423ms (next.js: 187ms, application-code: 236ms)
+ GET /analyses 200 in 195ms (next.js: 3ms, application-code: 191ms)
+ GET /analyses 200 in 147ms (next.js: 9ms, application-code: 138ms)
+ GET /analyses 200 in 146ms (next.js: 45ms, application-code: 102ms)
+ GET /analyses 200 in 146ms (next.js: 86ms, application-code: 60ms)
+✓ Compiled in 369ms
+ GET /analyses 200 in 636ms (next.js: 212ms, application-code: 424ms)
+ GET /analyses 200 in 616ms (next.js: 6ms, application-code: 610ms)
+ GET /analyses 200 in 548ms (next.js: 23ms, application-code: 524ms)
+✓ Compiled in 152ms
+ GET /analyses 200 in 291ms (next.js: 188ms, application-code: 103ms)
+ GET /analyses 200 in 35ms (next.js: 3ms, application-code: 31ms)
+ GET /analyses 200 in 311ms (next.js: 145ms, application-code: 166ms)
+ GET /analyses 200 in 81ms (next.js: 7ms, application-code: 74ms)
+✓ Compiled in 143ms
+ GET /analyses 200 in 237ms (next.js: 182ms, application-code: 55ms)
+ GET /analyses 200 in 236ms (next.js: 4ms, application-code: 232ms)
+ POST /api/ai/batch-analysis 500 in 22.1s (next.js: 191ms, application-code: 21.9s)
+ GET /analyses/job-mr4hnkva-5mtbdj 200 in 201ms (next.js: 166ms, application-code: 35ms)
+ GET /analyses 200 in 32ms (next.js: 3ms, application-code: 28ms)
