@@ -2,6 +2,7 @@ import "server-only";
 
 import OpenAI from "openai";
 import { createEntityId, createTimestamp } from "@/lib/jobloop/generators";
+import type { ServerTrace } from "@/lib/jobloop/server-trace";
 import type {
   CompanyResearch,
   JobAnalysisResult,
@@ -16,8 +17,7 @@ import type {
 
 const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
 const DEFAULT_MODEL = "deepseek/deepseek-v4-flash";
-const DEPLOYMENT_FAST_MODE =
-  process.env.NETLIFY === "true" || process.env.AI_FAST_MODE === "true";
+const DEPLOYMENT_FAST_MODE = process.env.AI_FAST_MODE === "true";
 const DETAIL_SYSTEM = `
 你是 JobLoop 的高级求职顾问，擅长从招聘视角拆解岗位本质。你的任务是为候选人生成一份**深度、可执行**的单岗位分析报告。
 
@@ -109,29 +109,58 @@ function parseJsonPayload<T>(payload: string): T {
 async function requestJson<T>({
   system,
   prompt,
+  trace,
+  traceStep,
 }: {
   system: string;
   prompt: JsonValue;
+  trace?: ServerTrace;
+  traceStep?: string;
 }) {
   const client = getClient();
   const model = getModel();
+  const step = traceStep || "openrouter:request";
+  const messages = [
+    { role: "system" as const, content: system },
+    { role: "user" as const, content: JSON.stringify(prompt, null, 2) },
+  ];
+  trace?.log(`${step}:start`, {
+    messageCount: messages.length,
+    model,
+    promptLength: messages[1]?.content.length ?? 0,
+    systemLength: system.length,
+  });
   const completion = await client.chat.completions.create({
     model,
     temperature: 0.2,
-    messages: [
-      { role: "system", content: system },
-      { role: "user", content: JSON.stringify(prompt, null, 2) },
-    ],
+    messages,
     response_format: { type: "json_object" },
   });
 
   const rawText = extractTextContent(completion.choices[0]?.message?.content);
-  if (!rawText) throw new Error("Model returned empty content");
-
-  return {
+  if (!rawText) {
+    trace?.fail(`${step}:empty`, new Error("Model returned empty content"), {
+      model,
+    });
+    throw new Error("Model returned empty content");
+  }
+  trace?.log(`${step}:success`, {
     model,
-    data: parseJsonPayload<T>(rawText),
-  };
+    rawTextLength: rawText.length,
+  });
+
+  try {
+    return {
+      model,
+      data: parseJsonPayload<T>(rawText),
+    };
+  } catch (error) {
+    trace?.fail(`${step}:parse-failed`, error, {
+      model,
+      rawTextPreview: rawText.slice(0, 500),
+    });
+    throw error;
+  }
 }
 
 type SearchCitation = {
@@ -524,10 +553,20 @@ async function buildCompanyResearch(job: JobJd) {
 export async function generateBatchAnalysisWithAi(
   jobs: JobJd[],
   resumeVersions: ResumeVersion[],
+  trace?: ServerTrace,
 ) {
   const fastMode = DEPLOYMENT_FAST_MODE;
+  trace?.log("batch-analysis:start", {
+    fastMode,
+    jobCount: jobs.length,
+    resumeVersionCount: resumeVersions.length,
+  });
   const enrichedJobs = await Promise.all(
     jobs.map(async (job) => {
+      trace?.log("batch-analysis:job:start", {
+        jobId: job.id,
+        jobTitle: job.jobTitle,
+      });
       const structuredJd = fastMode
         ? extractStructuredJdQuick(job)
         : await extractStructuredJd(job);
@@ -536,7 +575,11 @@ export async function generateBatchAnalysisWithAi(
       if (!fastMode) {
         try {
           companyResearch = await buildCompanyResearch(job);
-        } catch {
+        } catch (error) {
+          trace?.fail("batch-analysis:job:company-research", error, {
+            jobId: job.id,
+            jobTitle: job.jobTitle,
+          });
           companyResearch = {
             industry: "待补充",
             companyScale: "待补充",
@@ -561,6 +604,9 @@ export async function generateBatchAnalysisWithAi(
       };
     }),
   );
+  trace?.log("batch-analysis:jobs:enriched", {
+    enrichedJobCount: enrichedJobs.length,
+  });
 
   const { data, model } = await requestJson<{
     analyses: Array<{
@@ -618,6 +664,12 @@ export async function generateBatchAnalysisWithAi(
         ],
       },
     },
+    trace,
+    traceStep: "batch-analysis:model",
+  });
+  trace?.log("batch-analysis:model:parsed", {
+    analysisCount: data.analyses.length,
+    model,
   });
 
   const jobById = new Map(enrichedJobs.map((job) => [job.id, job]));
@@ -634,6 +686,10 @@ export async function generateBatchAnalysisWithAi(
   }
 
   if (uniqueAnalyses.size !== enrichedJobs.length) {
+    trace?.log("batch-analysis:model:mismatch", {
+      enrichedJobCount: enrichedJobs.length,
+      uniqueAnalysisCount: uniqueAnalyses.size,
+    });
     throw new Error(
       `批量分析结果条数不匹配：本次输入 ${enrichedJobs.length} 个岗位，但模型仅返回 ${uniqueAnalyses.size} 条结果，请重试。`,
     );
@@ -647,6 +703,10 @@ export async function generateBatchAnalysisWithAi(
     }
 
     return normalizeAnalysisRecord(item, job, resumeVersions);
+  });
+  trace?.log("batch-analysis:completed", {
+    analysisCount: analyses.length,
+    model,
   });
 
   return { jobs: enrichedJobs, analyses, model };

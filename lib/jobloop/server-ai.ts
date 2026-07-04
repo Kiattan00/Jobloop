@@ -2,6 +2,7 @@ import "server-only";
 
 import OpenAI from "openai";
 import { createEntityId, createTimestamp } from "@/lib/jobloop/generators";
+import type { ServerTrace } from "@/lib/jobloop/server-trace";
 import type {
   CompanyResearch,
   JobAnalysisResult,
@@ -17,8 +18,7 @@ import type {
 
 const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
 const DEFAULT_MODEL = "deepseek/deepseek-v4-flash";
-const DEPLOYMENT_FAST_MODE =
-  process.env.NETLIFY === "true" || process.env.AI_FAST_MODE === "true";
+const DEPLOYMENT_FAST_MODE = process.env.AI_FAST_MODE === "true";
 const DETAIL_SYSTEM = `
 你是 JobLoop 的高级求职顾问，擅长从招聘视角拆解岗位本质。你的任务是为候选人生成一份**深度、可执行**的单岗位分析报告。
 
@@ -392,33 +392,60 @@ async function requestJson<T>({
   examples = [],
   system,
   prompt,
+  trace,
+  traceStep,
 }: {
   examples?: PromptMessage[];
   system: string;
   prompt: JsonValue;
+  trace?: ServerTrace;
+  traceStep?: string;
 }) {
   const client = getClient();
   const model = getModel();
+  const step = traceStep || "openrouter:request";
+  const messages = [
+    { role: "system" as const, content: system },
+    ...examples,
+    { role: "user" as const, content: JSON.stringify(prompt, null, 2) },
+  ];
+  trace?.log(`${step}:start`, {
+    messageCount: messages.length,
+    model,
+    promptLength: messages[messages.length - 1]?.content.length ?? 0,
+    systemLength: system.length,
+  });
   const completion = await client.chat.completions.create({
     model,
     temperature: 0.2,
-    messages: [
-      { role: "system", content: system },
-      ...examples,
-      { role: "user", content: JSON.stringify(prompt, null, 2) },
-    ],
+    messages,
     response_format: { type: "json_object" },
   });
 
   const rawText = extractTextContent(completion.choices[0]?.message?.content);
   if (!rawText) {
+    trace?.fail(`${step}:empty`, new Error("Model returned empty content"), {
+      model,
+    });
     throw new Error("Model returned empty content");
   }
-
-  return {
+  trace?.log(`${step}:success`, {
     model,
-    data: parseJsonPayload<T>(rawText),
-  };
+    rawTextLength: rawText.length,
+  });
+
+  try {
+    return {
+      model,
+      data: parseJsonPayload<T>(rawText),
+    };
+  } catch (error) {
+    trace?.fail(`${step}:parse-failed`, error, {
+      model,
+      rawTextPreview: rawText.slice(0, 500),
+    });
+    throw error;
+  }
 }
 
 function parseSearchCitations(message: {
@@ -710,16 +737,26 @@ async function buildCompanyResearch(job: JobJd) {
   } satisfies CompanyResearch;
 }
 
-export async function generateResumeVersionsWithAi(sourceResume: SourceResume) {
+export async function generateResumeVersionsWithAi(
+  sourceResume: SourceResume,
+  trace?: ServerTrace,
+) {
   let searchContext: ResumeSearchContext | null = null;
   const fastMode = shouldSkipOptionalAiPasses();
+  trace?.log("resume:start", {
+    fastMode,
+    sourceResumeId: sourceResume.id,
+  });
 
   if (!fastMode) {
     try {
       searchContext = await buildResumeSearchContext(sourceResume);
     } catch (error) {
+      trace?.fail("resume:search-context", error);
       console.error("Failed to build resume search context", error);
     }
+  } else {
+    trace?.log("resume:fast-mode-skip-search");
   }
 
   const baseSystem =
@@ -771,16 +808,25 @@ export async function generateResumeVersionsWithAi(sourceResume: SourceResume) {
   }>({
     system: baseSystem,
     prompt,
+    trace,
+    traceStep: "resume:first-pass",
   });
 
   const firstPass = data.versions.slice(0, 1).map((version) => ({
     ...version,
     content: normalizeResumeContentOutput(version.content),
   }));
+  trace?.log("resume:first-pass:normalized", {
+    firstPassCount: firstPass.length,
+    firstPassLengths: firstPass.map((version) => version.content.length),
+  });
 
   const firstPassRedFlags = firstPass.flatMap((version) =>
     findResumeRedFlags(version.content, sourceResume.content),
   );
+  trace?.log("resume:first-pass:red-flags", {
+    redFlagCount: firstPassRedFlags.length,
+  });
 
   const finalVersions =
     !fastMode &&
@@ -809,6 +855,10 @@ export async function generateResumeVersionsWithAi(sourceResume: SourceResume) {
         ).data.versions.slice(0, 1)
       : firstPass;
 
+  trace?.log("resume:final-pass:selected", {
+    usedRetryPass: !fastMode && firstPassRedFlags.length > 0,
+  });
+
   const timestamp = createTimestamp();
   const versions: ResumeVersion[] = finalVersions.map((version) => ({
     id: createEntityId("resume"),
@@ -824,6 +874,9 @@ export async function generateResumeVersionsWithAi(sourceResume: SourceResume) {
 
   for (const version of versions) {
     if (fastMode) {
+      trace?.log("resume:fast-mode-skip-sanitize", {
+        versionId: version.id,
+      });
       continue;
     }
 
@@ -837,11 +890,24 @@ export async function generateResumeVersionsWithAi(sourceResume: SourceResume) {
           version.content,
           redFlags,
         );
+        trace?.log("resume:sanitize:success", {
+          redFlagCount: redFlags.length,
+          versionId: version.id,
+        });
       } catch (error) {
+        trace?.fail("resume:sanitize:failed", error, {
+          redFlagCount: redFlags.length,
+          versionId: version.id,
+        });
         console.error("Failed to sanitize resume draft", error);
       }
     }
   }
+
+  trace?.log("resume:completed", {
+    model,
+    versionCount: versions.length,
+  });
 
   return { versions, model };
 }
