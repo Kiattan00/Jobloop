@@ -1,4 +1,4 @@
-import type { JdBatch, JobJd } from "./types";
+﻿import type { JdBatch, JobJd } from "./types";
 
 const now = () => new Date().toISOString();
 
@@ -105,11 +105,11 @@ const findValue = (text: string, labels: string[]) => {
 
   for (const label of labels) {
     const matched = lines.find((line) =>
-      line.toLowerCase().startsWith(label.toLowerCase()),
+      new RegExp(`^${label}\\s*[:：]`, "i").test(line),
     );
 
     if (matched) {
-      return matched.replace(new RegExp(`^${label}\\s*[:：-]?\\s*`, "i"), "");
+      return matched.replace(new RegExp(`^${label}\\s*[:：]\\s*`, "i"), "");
     }
   }
 
@@ -218,6 +218,10 @@ function splitBlocks(text: string) {
     let current: string[] = [];
 
     for (const line of lines) {
+      if (isNoiseLine(line)) {
+        continue;
+      }
+
       if (current.length > 0 && looksLikeCompanyStart(line)) {
         result.push(current.join("\n").trim());
         current = [line];
@@ -280,7 +284,14 @@ function extractCompanyName(lines: string[], block: string, index: number) {
 function extractJobTitle(lines: string[], block: string, index: number) {
   const labeled = findValue(block, ["岗位", "职位", "招聘岗位", "Job Title"]);
   if (labeled) {
-    return labeled;
+    const cleaned = cleanLine(labeled);
+    const isBodyHint = JD_BODY_HINTS.some((hint) => cleaned.includes(hint));
+    const isRecruiterHint = RECRUITER_HINTS.some((hint) =>
+      cleaned.includes(hint),
+    );
+    if (!isBodyHint && !isRecruiterHint && cleaned.length >= 2) {
+      return labeled;
+    }
   }
 
   const startIndex = lines.findIndex((line) => looksLikeCompanyStart(line));
@@ -296,24 +307,45 @@ function extractJobTitle(lines: string[], block: string, index: number) {
   return fallback || `岗位${index + 1}`;
 }
 
+function isDateOnlyBlock(block: string) {
+  const lines = normalizeText(block)
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+  return lines.length === 1 && isDateLine(lines[0]);
+}
+
+const MIN_BLOCK_LENGTH = 30;
+
 export function parseJdBatchText(text: string): ParsedJdDraft[] {
-  return splitBlocks(text).map((block, index) => {
-    const lines = normalizeText(block)
-      .split("\n")
-      .map((line) => line.trim())
-      .filter(Boolean);
+  const drafts = splitBlocks(text)
+    .filter((block) => !isDateOnlyBlock(block))
+    .filter((block) => block.length >= MIN_BLOCK_LENGTH)
+    .map((block, index) => {
+      const lines = normalizeText(block)
+        .split("\n")
+        .map((line) => line.trim())
+        .filter(Boolean);
 
-    const companyInfo =
-      findValue(block, ["公司补充信息", "公司信息", "Company info"]) || "";
+      const companyInfo =
+        findValue(block, ["公司补充信息", "公司信息", "Company info"]) || "";
 
-    return {
-      id: `draft-${slug()}`,
-      companyName: extractCompanyName(lines, block, index),
-      jobTitle: extractJobTitle(lines, block, index),
-      jobUrl: findUrl(block),
-      jdText: block,
-      companyInfo,
-    };
+      return {
+        id: `draft-${slug()}`,
+        companyName: extractCompanyName(lines, block, index),
+        jobTitle: extractJobTitle(lines, block, index),
+        jobUrl: findUrl(block),
+        jdText: block,
+        companyInfo,
+      };
+    });
+
+  const seen = new Set<string>();
+  return drafts.filter((draft) => {
+    const key = draft.companyName + "|" + draft.jobTitle;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
   });
 }
 

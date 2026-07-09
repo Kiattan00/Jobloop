@@ -9,10 +9,14 @@ import {
   PageHeader,
 } from "@/components/jobloop/page-chrome";
 import { ResumeVersionCard } from "@/components/jobloop/resume-version-card";
-import { createManualResumeVersion } from "@/lib/jobloop/generators";
+import {
+  createImportedResumeAsset,
+  createManualResumeVersion,
+} from "@/lib/jobloop/generators";
 import {
   deleteResumeVersion,
   getJobLoopState,
+  hasPersistedJobLoopState,
   saveResumeVersions,
   updateResumeVersion,
   upsertSourceResume,
@@ -21,21 +25,30 @@ import type { JobLoopState, ResumeVersion } from "@/lib/jobloop/types";
 
 export default function ResumesPage() {
   const [state, setState] = useState<JobLoopState | null>(null);
+  const [demoMode, setDemoMode] = useState(false);
   const [showManualForm, setShowManualForm] = useState(false);
   const [manualName, setManualName] = useState("");
   const [manualDirection, setManualDirection] = useState("");
   const [manualFocus, setManualFocus] = useState("");
   const [manualContent, setManualContent] = useState("");
+  const [uploadTitle, setUploadTitle] = useState("");
+  const [uploading, setUploading] = useState(false);
+  const [uploadInputKey, setUploadInputKey] = useState(0);
   const [message, setMessage] = useState<string | null>(null);
 
   useEffect(() => {
     setState(getJobLoopState());
+    setDemoMode(!hasPersistedJobLoopState());
   }, []);
 
   const versions = (state?.resumeVersions ?? []).slice(0, 3);
   const tailoredResumes = state?.tailoredResumes ?? [];
+  const realVersionCount = demoMode ? 0 : (state?.resumeVersions.length ?? 0);
 
-  const refresh = () => setState(getJobLoopState());
+  const refresh = () => {
+    setState(getJobLoopState());
+    setDemoMode(!hasPersistedJobLoopState());
+  };
 
   const handleSave = (version: ResumeVersion) => {
     updateResumeVersion(version);
@@ -48,7 +61,7 @@ export default function ResumesPage() {
   };
 
   const handleCreateManual = () => {
-    if (versions.length >= 3) {
+    if (realVersionCount >= 3) {
       setMessage("简历库已满");
       return;
     }
@@ -81,6 +94,83 @@ export default function ResumesPage() {
     refresh();
   };
 
+  const readFileAsDataUrl = (file: File) =>
+    new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        if (typeof reader.result === "string") {
+          resolve(reader.result);
+          return;
+        }
+
+        reject(new Error("无法读取 PDF 文件内容。"));
+      };
+      reader.onerror = () => reject(new Error("无法读取 PDF 文件内容。"));
+      reader.readAsDataURL(file);
+    });
+
+  const handleUploadPdf = async (
+    event: React.ChangeEvent<HTMLInputElement>,
+  ) => {
+    const file = event.target.files?.[0];
+
+    if (!file) {
+      return;
+    }
+
+    if (realVersionCount >= 3) {
+      setMessage("简历库已满");
+      setUploadInputKey((current) => current + 1);
+      return;
+    }
+
+    setUploading(true);
+    setMessage(null);
+
+    try {
+      const formData = new FormData();
+      formData.set("file", file);
+
+      const response = await fetch("/api/resumes/upload-pdf", {
+        method: "POST",
+        body: formData,
+      });
+      const data = (await response.json()) as {
+        extractedText?: string;
+        detectedTitle?: string;
+        fileName?: string;
+        error?: string;
+      };
+
+      if (!response.ok || !data.extractedText) {
+        throw new Error(data.error || "PDF 识别失败，请稍后重试。");
+      }
+
+      const dataUrl = await readFileAsDataUrl(file);
+      const { sourceResume, resumeVersion } = createImportedResumeAsset({
+        title: uploadTitle.trim() || data.detectedTitle || "PDF 简历",
+        content: data.extractedText,
+        sourceType: "pdf",
+        fileName: data.fileName || file.name,
+        fileUrl: dataUrl,
+        extractionStatus: "success",
+      });
+
+      upsertSourceResume(sourceResume);
+      saveResumeVersions([resumeVersion]);
+      setUploadTitle("");
+      setUploadInputKey((current) => current + 1);
+      setMessage("已从 PDF 提取文本并保存到简历库");
+      refresh();
+    } catch (error) {
+      setMessage(
+        error instanceof Error ? error.message : "PDF 识别失败，请稍后重试。",
+      );
+    } finally {
+      setUploading(false);
+    }
+  };
+
   return (
     <JobLoopShell active="/resumes">
       <div className="grid min-h-[720px] gap-6">
@@ -88,7 +178,7 @@ export default function ResumesPage() {
           <PageHeader
             eyebrow="Resume library"
             title="简历库"
-            subtitle="最多保留 3 个基础简历版本。后续岗位分析会从这里选择推荐版本。"
+            subtitle="支持粘贴文本或上传文本型 PDF。系统会把识别出的正文沉淀为简历卡片，后续岗位分析直接读取这里的文字内容。"
           />
           <div className="flex flex-wrap gap-3">
             <button
@@ -101,11 +191,77 @@ export default function ResumesPage() {
               ) : (
                 <Plus className="size-4" aria-hidden="true" />
               )}
-              新增简历
+              {showManualForm ? "收起文本录入" : "粘贴文本"}
             </button>
             <ActionLink href="/resumes/generate" tone="primary">
-              进入生成页
+              查看 AI 生成页
             </ActionLink>
+          </div>
+        </div>
+
+        {demoMode ? (
+          <div className="rounded-lg border border-cyan-200/35 bg-cyan-300/10 p-4 text-sm text-cyan-50">
+            当前展示的是预设示例内容，方便你先体验页面结构。只要你粘贴或上传真实简历，这里就会切换成你的数据。
+          </div>
+        ) : null}
+
+        <div className="grid gap-4 lg:grid-cols-[1fr_1fr]">
+          <div className="rounded-lg border border-white/18 bg-white/10 p-5 backdrop-blur-2xl">
+            <p className="text-xs font-semibold uppercase tracking-normal text-cyan-100/70">
+              PDF import
+            </p>
+            <h2 className="mt-1 text-xl font-semibold text-white">
+              上传文本型 PDF
+            </h2>
+            <p className="mt-2 text-sm leading-6 text-white/60">
+              当前版本会提取 PDF 自带的文字层，生成可编辑的简历卡片，并保留
+              “查看 PDF” 入口。扫描件与 OCR 暂不在本轮范围内。
+            </p>
+            <div className="mt-4 grid gap-4">
+              <input
+                className="h-10 rounded-md border border-white/18 bg-black/16 px-3 text-sm text-white outline-none focus:border-cyan-200/70"
+                onChange={(event) => setUploadTitle(event.target.value)}
+                placeholder="可选：自定义卡片名，例如 AI 产品经理原始简历"
+                value={uploadTitle}
+              />
+              <input
+                accept="application/pdf"
+                className="block w-full text-sm text-white/72 file:mr-4 file:rounded-md file:border-0 file:bg-cyan-300/18 file:px-4 file:py-2 file:font-semibold file:text-cyan-50"
+                disabled={uploading}
+                key={uploadInputKey}
+                onChange={(event) => void handleUploadPdf(event)}
+                type="file"
+              />
+              <p className="text-sm text-white/54">
+                当前已保存 {realVersionCount}/3 个真实基础简历版本
+              </p>
+            </div>
+          </div>
+
+          <div className="rounded-lg border border-white/18 bg-white/10 p-5 backdrop-blur-2xl">
+            <p className="text-xs font-semibold uppercase tracking-normal text-cyan-100/70">
+              Paste text
+            </p>
+            <h2 className="mt-1 text-xl font-semibold text-white">
+              粘贴文本或整理后的简历
+            </h2>
+            <p className="mt-2 text-sm leading-6 text-white/60">
+              如果你已经有文本版简历，直接粘贴保存即可。后续岗位分析会优先读取这里的正文，而不是重新解析文件。
+            </p>
+            <div className="mt-4">
+              <button
+                className="inline-flex h-10 items-center gap-2 rounded-md border border-white/24 bg-white/12 px-4 text-sm font-semibold text-white/82 hover:bg-white/18"
+                onClick={() => setShowManualForm((current) => !current)}
+                type="button"
+              >
+                {showManualForm ? (
+                  <X className="size-4" aria-hidden="true" />
+                ) : (
+                  <Plus className="size-4" aria-hidden="true" />
+                )}
+                {showManualForm ? "收起表单" : "粘贴并创建卡片"}
+              </button>
+            </div>
           </div>
         </div>
 
@@ -152,7 +308,7 @@ export default function ResumesPage() {
                 保存到简历库
               </button>
               <p className="self-center text-sm text-white/56">
-                当前已保存 {versions.length}/3 个基础简历
+                当前已保存 {realVersionCount}/3 个真实基础简历
               </p>
             </div>
           </div>
@@ -167,9 +323,9 @@ export default function ResumesPage() {
         {versions.length === 0 ? (
           <EmptyState
             actionHref="/resumes/generate"
-            actionLabel="生成基础简历"
-            description="先粘贴一份原始简历，让 JobLoop 针对单一目标岗位生成 1 个定向基础版本。"
-            title="还没有保存的基础简历版本"
+            actionLabel="查看 AI 生成页"
+            description="先粘贴一份原始简历，或直接上传文本型 PDF，让 JobLoop 生成可编辑的简历卡片。"
+            title="还没有可用于分析的基础简历"
           />
         ) : (
           <div className="grid gap-4 lg:grid-cols-3">
@@ -178,6 +334,10 @@ export default function ResumesPage() {
                 key={version.id}
                 onDelete={handleDelete}
                 onSave={handleSave}
+                readOnly={demoMode}
+                sourceResume={state?.sourceResumes.find(
+                  (item) => item.id === version.sourceResumeId,
+                )}
                 version={version}
               />
             ))}

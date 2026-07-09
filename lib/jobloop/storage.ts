@@ -1,6 +1,6 @@
 "use client";
 
-import { createEmptyJobLoopState } from "./seed-data";
+import { createDemoJobLoopState, createEmptyJobLoopState } from "./seed-data";
 import type {
   AiOutput,
   JdBatch,
@@ -18,7 +18,14 @@ const ANALYSIS_DRAFT_INPUT_KEY = "jobloop:analysis-draft-input";
 
 const isBrowser = () => typeof window !== "undefined";
 
-export function getJobLoopState(): JobLoopState {
+function normalizeState(state: JobLoopState): JobLoopState {
+  return {
+    ...state,
+    resumeVersions: state.resumeVersions.slice(0, 3),
+  };
+}
+
+function getPersistedJobLoopState(): JobLoopState {
   if (!isBrowser()) {
     return createEmptyJobLoopState();
   }
@@ -29,24 +36,44 @@ export function getJobLoopState(): JobLoopState {
   }
 
   try {
-    const parsed = {
+    return normalizeState({
       ...createEmptyJobLoopState(),
       ...JSON.parse(raw),
-    } as JobLoopState;
-    return {
-      ...parsed,
-      resumeVersions: parsed.resumeVersions.slice(0, 3),
-    };
+    } as JobLoopState);
   } catch {
     return createEmptyJobLoopState();
   }
+}
+
+export function hasPersistedJobLoopState() {
+  const state = getPersistedJobLoopState();
+  return (
+    state.sourceResumes.length > 0 ||
+    state.resumeVersions.length > 0 ||
+    state.jdBatches.length > 0 ||
+    state.jobs.length > 0 ||
+    state.analysisResults.length > 0 ||
+    state.detailAnalyses.length > 0 ||
+    state.tailoredResumes.length > 0
+  );
+}
+
+export function getJobLoopState(): JobLoopState {
+  if (!hasPersistedJobLoopState()) {
+    return createDemoJobLoopState();
+  }
+
+  return getPersistedJobLoopState();
 }
 
 export function saveJobLoopState(state: JobLoopState) {
   if (!isBrowser()) {
     return;
   }
-  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  window.localStorage.setItem(
+    STORAGE_KEY,
+    JSON.stringify(normalizeState(state)),
+  );
 }
 
 export function getAnalysisDraftInput() {
@@ -66,7 +93,7 @@ export function saveAnalysisDraftInput(value: string) {
 }
 
 export function upsertSourceResume(sourceResume: SourceResume) {
-  const state = getJobLoopState();
+  const state = getPersistedJobLoopState();
   const rest = state.sourceResumes.filter(
     (item) => item.id !== sourceResume.id,
   );
@@ -77,7 +104,7 @@ export function saveResumeVersions(
   versions: ResumeVersion[],
   aiOutput?: AiOutput,
 ) {
-  const state = getJobLoopState();
+  const state = getPersistedJobLoopState();
   const nextVersions = versions.slice(0, 3);
   const existingIds = new Set(nextVersions.map((version) => version.id));
   const resumeVersions = [
@@ -90,7 +117,7 @@ export function saveResumeVersions(
 }
 
 export function updateResumeVersion(version: ResumeVersion) {
-  const state = getJobLoopState();
+  const state = getPersistedJobLoopState();
   saveJobLoopState({
     ...state,
     resumeVersions: state.resumeVersions.map((item) =>
@@ -100,7 +127,7 @@ export function updateResumeVersion(version: ResumeVersion) {
 }
 
 export function saveJdBatchWithJobs(batch: JdBatch, jobs: JobJd[]) {
-  const state = getJobLoopState();
+  const state = getPersistedJobLoopState();
   const jobIds = new Set(jobs.map((job) => job.id));
 
   saveJobLoopState({
@@ -117,7 +144,7 @@ export function saveBatchAnalysis(
   results: JobAnalysisResult[],
   aiOutput?: AiOutput,
 ) {
-  const state = getJobLoopState();
+  const state = getPersistedJobLoopState();
   const resultIds = new Set(results.map((result) => result.id));
 
   saveJobLoopState({
@@ -134,7 +161,7 @@ export function saveDetailAnalysis(
   detail: JobDetailAnalysis,
   aiOutput?: AiOutput,
 ) {
-  const state = getJobLoopState();
+  const state = getPersistedJobLoopState();
 
   saveJobLoopState({
     ...state,
@@ -150,7 +177,7 @@ export function saveTailoredResume(
   tailoredResume: TailoredResume,
   aiOutput?: AiOutput,
 ) {
-  const state = getJobLoopState();
+  const state = getPersistedJobLoopState();
 
   saveJobLoopState({
     ...state,
@@ -169,7 +196,7 @@ export function saveTailoredResume(
 }
 
 export function updateJobCompanyInfo(jobId: string, companyInfo: string) {
-  const state = getJobLoopState();
+  const state = getPersistedJobLoopState();
 
   saveJobLoopState({
     ...state,
@@ -178,6 +205,32 @@ export function updateJobCompanyInfo(jobId: string, companyInfo: string) {
         ? { ...job, companyInfo, updatedAt: new Date().toISOString() }
         : job,
     ),
+  });
+}
+
+export function updateJob(job: JobJd) {
+  const state = getPersistedJobLoopState();
+  const exists = state.jobs.some((item) => item.id === job.id);
+
+  saveJobLoopState({
+    ...state,
+    jobs: exists
+      ? state.jobs.map((item) => (item.id === job.id ? job : item))
+      : [job, ...state.jobs],
+  });
+}
+
+export function updateAnalysisResult(result: JobAnalysisResult) {
+  const state = getPersistedJobLoopState();
+  const exists = state.analysisResults.some((item) => item.id === result.id);
+
+  saveJobLoopState({
+    ...state,
+    analysisResults: exists
+      ? state.analysisResults.map((item) =>
+          item.id === result.id ? result : item,
+        )
+      : [result, ...state.analysisResults],
   });
 }
 
@@ -192,7 +245,7 @@ export function getResumeVersionById(versionId: string) {
 }
 
 export function deleteResumeVersion(versionId: string) {
-  const state = getJobLoopState();
+  const state = getPersistedJobLoopState();
   saveJobLoopState({
     ...state,
     resumeVersions: state.resumeVersions.filter(

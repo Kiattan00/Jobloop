@@ -5,9 +5,13 @@ import { GlassPanel } from "./glass-panel";
 export function TailoredResumePanel({
   tailoredResume,
   onGenerate,
+  canGenerate = true,
+  helperText,
 }: {
   tailoredResume?: TailoredResume;
   onGenerate: () => void;
+  canGenerate?: boolean;
+  helperText?: string;
 }) {
   return (
     <GlassPanel intensity="card" className="p-5">
@@ -24,7 +28,8 @@ export function TailoredResumePanel({
           </p>
         </div>
         <button
-          className="inline-flex h-10 items-center gap-2 rounded-md border border-cyan-200/70 bg-cyan-300/18 px-4 text-sm font-semibold text-cyan-50"
+          className="inline-flex h-10 items-center gap-2 rounded-md border border-cyan-200/70 bg-cyan-300/18 px-4 text-sm font-semibold text-cyan-50 disabled:cursor-not-allowed disabled:opacity-45"
+          disabled={!canGenerate}
           onClick={onGenerate}
           type="button"
         >
@@ -48,7 +53,7 @@ export function TailoredResumePanel({
         </div>
       ) : (
         <p className="mt-5 rounded-md border border-white/14 bg-black/12 p-4 text-sm text-white/58">
-          还没有为该岗位生成微调版本。
+          {helperText || "还没有为该岗位生成微调版本。"}
         </p>
       )}
     </GlassPanel>

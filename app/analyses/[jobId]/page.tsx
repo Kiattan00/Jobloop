@@ -47,6 +47,11 @@ export default function AnalysisDetailPage() {
         return;
       }
 
+      if (result.status && result.status !== "ready") {
+        setState(current);
+        return;
+      }
+
       if (!existingDetail) {
         setLoading(true);
         try {
@@ -125,8 +130,36 @@ export default function AnalysisDetailPage() {
         output.outputRefId === tailoredResume?.id,
     ) ?? [];
 
+  if (!job || !result) {
+    return (
+      <JobLoopShell active="/analyses">
+        <EmptyState
+          actionHref="/analyses"
+          actionLabel="返回岗位分析"
+          description="没有找到该岗位的分析结果，可能是本地数据已清空。"
+          title="单岗位分析不存在"
+        />
+      </JobLoopShell>
+    );
+  }
+
+  const canGenerateTailored =
+    result.status === "ready" &&
+    Boolean(resumeVersion) &&
+    result.needsTailoring &&
+    result.matchScore >= 70;
+  const tailoredHelperText = tailoredResume
+    ? undefined
+    : result.status !== "ready"
+      ? "请先等待岗位评分与详情报告准备完成，再决定是否生成微调版。"
+      : !result.needsTailoring
+        ? "当前岗位匹配度已足够，不建议优先生成微调版。"
+        : result.matchScore < 70
+          ? "当前岗位综合价值偏谨慎，建议先确认是否值得投入微调成本。"
+          : "该岗位值得继续优化，建议生成微调版后再投递。";
+
   const generateTailored = async () => {
-    if (!job || !resumeVersion) {
+    if (!job || !resumeVersion || !canGenerateTailored) {
       return;
     }
 
@@ -170,68 +203,68 @@ export default function AnalysisDetailPage() {
 
   return (
     <JobLoopShell active="/analyses">
-      {!job || !result ? (
-        <EmptyState
-          actionHref="/analyses"
-          actionLabel="返回岗位分析"
-          description="没有找到该岗位的分析结果，可能是本地数据已清空。"
-          title="单岗位分析不存在"
-        />
-      ) : (
-        <div className="grid min-h-[720px] gap-6">
-          <Link
-            className="text-sm font-semibold text-cyan-100/80 hover:text-cyan-50"
-            href="/analyses"
-          >
-            ← 返回岗位分析
-          </Link>
+      <div className="grid min-h-[720px] gap-6">
+        <Link
+          className="text-sm font-semibold text-cyan-100/80 hover:text-cyan-50"
+          href="/analyses"
+        >
+          ← 返回岗位分析
+        </Link>
 
-          {loading ? (
-            <div className="rounded-lg border border-cyan-200/30 bg-cyan-300/10 p-5 text-sm text-cyan-50">
-              正在调用 AI 生成单岗位完整分析...
-            </div>
-          ) : null}
+        {loading ? (
+          <div className="rounded-lg border border-cyan-200/30 bg-cyan-300/10 p-5 text-sm text-cyan-50">
+            正在调用 AI 生成单岗位完整分析...
+          </div>
+        ) : null}
 
-          {error ? (
-            <div className="rounded-lg border border-rose-200/25 bg-rose-400/10 p-4 text-sm text-rose-100">
-              {error}
-            </div>
-          ) : null}
+        {error ? (
+          <div className="rounded-lg border border-rose-200/25 bg-rose-400/10 p-4 text-sm text-rose-100">
+            {error}
+          </div>
+        ) : null}
 
-          {detail ? (
-            <>
-              <JobAnalysisDetail
-                detail={detail}
-                job={job}
-                result={result}
-                resumeVersion={resumeVersion}
-              />
-              <TailoredResumePanel
-                onGenerate={() => void generateTailored()}
-                tailoredResume={tailoredResume}
-              />
-              {tailoring ? (
-                <div className="rounded-lg border border-cyan-200/30 bg-cyan-300/10 p-4 text-sm text-cyan-50">
-                  正在生成岗位微调简历...
-                </div>
-              ) : null}
-              <ActionAdvicePanels detail={detail} />
-              <AiOutputTrace
-                job={job}
-                outputs={traceOutputs}
-                resumeVersion={resumeVersion}
-              />
-            </>
-          ) : (
-            <EmptyState
-              actionHref="/analyses"
-              actionLabel="返回岗位分析"
-              description="当前岗位还没有完成单岗位分析生成。"
-              title="正在准备详情内容"
+        {detail ? (
+          <>
+            <JobAnalysisDetail
+              detail={detail}
+              job={job}
+              result={result}
+              resumeVersion={resumeVersion}
             />
-          )}
-        </div>
-      )}
+            <TailoredResumePanel
+              canGenerate={canGenerateTailored}
+              helperText={tailoredHelperText}
+              onGenerate={() => void generateTailored()}
+              tailoredResume={tailoredResume}
+            />
+            {tailoring ? (
+              <div className="rounded-lg border border-cyan-200/30 bg-cyan-300/10 p-4 text-sm text-cyan-50">
+                正在生成岗位微调简历...
+              </div>
+            ) : null}
+            <ActionAdvicePanels detail={detail} />
+            <AiOutputTrace
+              job={job}
+              outputs={traceOutputs}
+              resumeVersion={resumeVersion}
+            />
+          </>
+        ) : (
+          <EmptyState
+            actionHref="/analyses"
+            actionLabel="返回岗位分析"
+            description={
+              result.status === "failed"
+                ? result.errorMessage ||
+                  "当前岗位分析失败，请稍后重新发起分析。"
+                : "当前岗位还没有完成单岗位分析生成，请等待卡片状态变为已完成后再查看详情。"
+            }
+            title={
+              result.status === "failed" ? "岗位分析失败" : "正在准备详情内容"
+            }
+          />
+        )}
+      </div>
     </JobLoopShell>
   );
 }

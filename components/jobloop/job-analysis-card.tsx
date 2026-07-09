@@ -18,6 +18,14 @@ const decisionTone = {
   not_recommended: "border-white/18 bg-white/10 text-white/62",
 };
 
+const statusLabel = {
+  draft: "待开始",
+  enriching: "补充信息中",
+  scoring: "评分中",
+  ready: "已完成",
+  failed: "处理失败",
+} as const;
+
 export function JobAnalysisCard({
   job,
   result,
@@ -43,35 +51,53 @@ export function JobAnalysisCard({
         </div>
         <div className="text-right">
           <p className="text-4xl font-semibold text-cyan-50">
-            {result.matchScore}%
+            {result.status === "ready" ? `${result.matchScore}%` : "--"}
           </p>
           <span
             className={`mt-2 inline-flex rounded-full border px-3 py-1 text-xs font-semibold ${decisionTone[result.applyDecision]}`}
           >
-            {decisionLabel[result.applyDecision]}
+            {result.status === "ready"
+              ? decisionLabel[result.applyDecision]
+              : statusLabel[result.status || "ready"]}
           </span>
         </div>
       </div>
-      <p className="mt-4 text-sm leading-6 text-white/66">{result.summary}</p>
+      <p className="mt-4 text-sm leading-6 text-white/66">
+        {result.errorMessage ||
+          result.summary ||
+          "系统正在补充岗位信息并准备评分结果。"}
+      </p>
       <div className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
         <div className="rounded-md border border-white/14 bg-black/12 p-3 text-white/58">
           是否需微调：
           <span className="font-semibold text-white">
-            {result.needsTailoring ? "需要" : "暂不需要"}
+            {result.status === "ready"
+              ? result.needsTailoring
+                ? "需要"
+                : "暂不需要"
+              : "待判断"}
           </span>
         </div>
         <div className="rounded-md border border-white/14 bg-black/12 p-3 text-white/58">
           主要风险：
-          <span className="font-semibold text-white">{result.mainRisk}</span>
+          <span className="font-semibold text-white">
+            {result.mainRisk || "等待评分后生成"}
+          </span>
         </div>
       </div>
       <div className="mt-5 flex flex-wrap gap-3">
-        <Link
-          className="inline-flex h-10 items-center justify-center rounded-md border border-cyan-200/70 bg-cyan-300/18 px-4 text-sm font-semibold text-cyan-50"
-          href={`/analyses/${job.id}`}
-        >
-          查看详情
-        </Link>
+        {result.status === "ready" ? (
+          <Link
+            className="inline-flex h-10 items-center justify-center rounded-md border border-cyan-200/70 bg-cyan-300/18 px-4 text-sm font-semibold text-cyan-50"
+            href={`/analyses/${job.id}`}
+          >
+            查看详情
+          </Link>
+        ) : (
+          <span className="inline-flex h-10 items-center justify-center rounded-md border border-white/16 bg-white/8 px-4 text-sm font-semibold text-white/52">
+            详情生成中
+          </span>
+        )}
         {job.jobUrl ? (
           <a
             className="inline-flex h-10 items-center justify-center rounded-md border border-white/20 bg-white/10 px-4 text-sm font-semibold text-white/74"

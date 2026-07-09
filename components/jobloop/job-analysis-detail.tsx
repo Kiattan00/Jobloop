@@ -15,6 +15,24 @@ const scoreMeta = [
   { key: "growthPotential", label: "成长性", weight: "10%" },
 ] as const;
 
+function normalizeReportBody(report: unknown) {
+  if (typeof report === "string") {
+    return report;
+  }
+
+  if (Array.isArray(report)) {
+    return report
+      .map((item) => (typeof item === "string" ? item : JSON.stringify(item)))
+      .join("\n");
+  }
+
+  if (report && typeof report === "object") {
+    return JSON.stringify(report, null, 2);
+  }
+
+  return "";
+}
+
 export function JobAnalysisDetail({
   job,
   result,
@@ -29,11 +47,11 @@ export function JobAnalysisDetail({
   const legacyItems = [
     ...(detail.strengths ?? []).map((item) => `匹配优势：${item}`),
     ...(detail.gaps ?? []).map((item) => `风险提示：${item}`),
-    ...(detail.recommendedActions ?? []).map((item) => `建议行动：${item}`),
+    ...(detail.recommendedActions ?? []).map((item) => `建议动作：${item}`),
   ];
 
   const reportBody =
-    detail.report ||
+    normalizeReportBody(detail.report) ||
     legacyItems.join("\n") ||
     "分析报告将在完成最新岗位分析后展示。";
 

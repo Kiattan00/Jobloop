@@ -18,6 +18,7 @@ import type {
 const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
 const DEFAULT_MODEL = "deepseek/deepseek-v4-flash";
 const DEPLOYMENT_FAST_MODE = process.env.AI_FAST_MODE === "true";
+const COMPANY_RESEARCH_TIMEOUT_MS = 15_000;
 const DETAIL_SYSTEM = `
 你是 JobLoop 的高级求职顾问，擅长从招聘视角拆解岗位本质。你的任务是为候选人生成一份**深度、可执行**的单岗位分析报告。
 
@@ -97,13 +98,86 @@ function extractTextContent(content: unknown) {
 }
 
 function parseJsonPayload<T>(payload: string): T {
-  const cleaned = payload
-    .trim()
+  let cleaned = payload.trim();
+
+  cleaned = cleaned
     .replace(/^```json\s*/i, "")
     .replace(/^```\s*/i, "")
     .replace(/\s*```$/i, "");
 
-  return JSON.parse(cleaned) as T;
+  try {
+    return JSON.parse(cleaned) as T;
+  } catch {
+    const firstBrace = cleaned.indexOf("{");
+    const lastBrace = cleaned.lastIndexOf("}");
+    if (firstBrace !== -1 && lastBrace > firstBrace) {
+      const extracted = cleaned.slice(firstBrace, lastBrace + 1);
+      return JSON.parse(extracted) as T;
+    }
+    throw new Error(
+      "模型返回内容无法解析为 JSON，前 200 字符: " + cleaned.slice(0, 200),
+    );
+  }
+}
+
+function formatStructuredReport(
+  value: unknown,
+  depth = 0,
+  title?: string,
+): string[] {
+  if (value == null) return [];
+
+  if (typeof value === "string") {
+    const text = value.trim();
+    if (!text) return [];
+    return title ? [`## ${title}`, text] : [text];
+  }
+
+  if (typeof value === "number" || typeof value === "boolean") {
+    return title ? [`## ${title}`, String(value)] : [String(value)];
+  }
+
+  if (Array.isArray(value)) {
+    const items = value
+      .flatMap((item) => formatStructuredReport(item, depth + 1))
+      .filter(Boolean);
+
+    if (!items.length) return [];
+
+    const lines = items.map((item) =>
+      item.startsWith("## ") || item.startsWith("- ") ? item : `- ${item}`,
+    );
+
+    return title ? [`## ${title}`, ...lines] : lines;
+  }
+
+  if (typeof value === "object") {
+    const entries = Object.entries(value).filter(([, item]) => item != null);
+    if (!entries.length) return [];
+
+    const sections = entries.flatMap(([key, item]) =>
+      formatStructuredReport(item, depth + 1, key),
+    );
+
+    if (!sections.length) return [];
+
+    if (title && depth > 0) {
+      return [`## ${title}`, ...sections];
+    }
+
+    return sections;
+  }
+
+  return [];
+}
+
+function normalizeDetailReport(report: unknown) {
+  if (typeof report === "string") {
+    return report.trim();
+  }
+
+  const formatted = formatStructuredReport(report).join("\n\n").trim();
+  return formatted || "暂未生成完整分析报告。";
 }
 
 async function requestJson<T>({
@@ -130,12 +204,16 @@ async function requestJson<T>({
     promptLength: messages[1]?.content.length ?? 0,
     systemLength: system.length,
   });
-  const completion = await client.chat.completions.create({
-    model,
-    temperature: 0.2,
-    messages,
-    response_format: { type: "json_object" },
-  });
+  const completion = await client.chat.completions.create(
+    {
+      model,
+      temperature: 0.2,
+      max_tokens: 4096,
+      messages,
+      response_format: { type: "json_object" },
+    },
+    { timeout: 60_000 },
+  );
 
   const rawText = extractTextContent(completion.choices[0]?.message?.content);
   if (!rawText) {
@@ -226,6 +304,46 @@ function extractStructuredJdQuick(job: JobJd): StructuredJd {
     benefits: [],
     sourceUrl: job.jobUrl,
     rawSummary: job.jdText.slice(0, 600),
+  };
+}
+
+function toPromptStructuredJd(structuredJd?: StructuredJd | null) {
+  if (!structuredJd) {
+    return null;
+  }
+
+  return {
+    companyName: structuredJd.companyName,
+    jobTitle: structuredJd.jobTitle,
+    salaryRange: structuredJd.salaryRange || "",
+    responsibilities: structuredJd.responsibilities,
+    skillRequirements: structuredJd.skillRequirements,
+    experienceRequirement: structuredJd.experienceRequirement || "",
+    educationRequirement: structuredJd.educationRequirement || "",
+    location: structuredJd.location || "",
+    benefits: structuredJd.benefits,
+    sourceUrl: structuredJd.sourceUrl || "",
+    rawSummary: structuredJd.rawSummary,
+  };
+}
+
+function toPromptCompanyResearch(companyResearch?: CompanyResearch | null) {
+  if (!companyResearch) {
+    return null;
+  }
+
+  return {
+    industry: companyResearch.industry || "",
+    companyScale: companyResearch.companyScale || "",
+    mainBusiness: companyResearch.mainBusiness || "",
+    keyProducts: companyResearch.keyProducts,
+    reputation: companyResearch.reputation || "",
+    summary: companyResearch.summary,
+    searchedAt: companyResearch.searchedAt,
+    citations: (companyResearch.citations || []).map((citation) => ({
+      title: citation.title,
+      url: citation.url,
+    })),
   };
 }
 
@@ -424,12 +542,15 @@ function normalizeAnalysisRecord(
     needsTailoring: item.needsTailoring,
     mainRisk: item.mainRisk,
     summary: item.summary,
+    status: "ready",
     createdAt: createTimestamp(),
   };
 }
 
 async function extractStructuredJd(job: JobJd) {
-  const { data } = await requestJson<{ structuredJd: StructuredJd }>({
+  const { data } = await requestJson<
+    { structuredJd?: StructuredJd } & Partial<StructuredJd>
+  >({
     system:
       "你是 JobLoop 的中文 JD 结构化提取助手。你只做信息抽取，不做评价，不编造缺失信息。必须先确认当前输入只对应 1 份 JD，再从该 JD 中准确抽取公司名称和招聘岗位名称。公司名称不能误填为招聘人姓名、活跃时间、城市、薪资或福利标签；岗位名称不能误填为整段职责、日期、招聘文案或“职位详情”。若 JD 未提供某字段，则返回空字符串或空数组。只返回合法 JSON。",
     prompt: {
@@ -458,12 +579,31 @@ async function extractStructuredJd(job: JobJd) {
     },
   });
 
-  return data.structuredJd;
+  const nested = data.structuredJd;
+  if (nested && typeof nested === "object" && "companyName" in nested) {
+    return nested;
+  }
+
+  if (data && typeof data === "object" && "companyName" in data) {
+    return data as unknown as StructuredJd;
+  }
+
+  return extractStructuredJdQuick(job);
 }
 
-async function buildCompanyResearch(job: JobJd) {
+async function buildCompanyResearch(job: JobJd, trace?: ServerTrace) {
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey) throw new Error("Missing OPENROUTER_API_KEY");
+  const controller = new AbortController();
+  const timeout = setTimeout(
+    () => controller.abort(),
+    COMPANY_RESEARCH_TIMEOUT_MS,
+  );
+  trace?.log("batch-analysis:job:company-research:start", {
+    companyName: job.companyName,
+    jobId: job.id,
+    timeoutMs: COMPANY_RESEARCH_TIMEOUT_MS,
+  });
 
   const response = await fetch(`${OPENROUTER_BASE_URL}/chat/completions`, {
     method: "POST",
@@ -472,6 +612,7 @@ async function buildCompanyResearch(job: JobJd) {
       "Content-Type": "application/json",
       ...getDefaultHeaders(),
     },
+    signal: controller.signal,
     body: JSON.stringify({
       model: getModel(),
       temperature: 0.1,
@@ -504,9 +645,11 @@ async function buildCompanyResearch(job: JobJd) {
           ),
         },
       ],
+      max_tokens: 2048,
       tools: [{ type: "openrouter:web_search" }],
     }),
   });
+  clearTimeout(timeout);
 
   if (!response.ok) {
     throw new Error(`Company research failed with status ${response.status}`);
@@ -550,6 +693,183 @@ async function buildCompanyResearch(job: JobJd) {
   } satisfies CompanyResearch;
 }
 
+export async function enrichJobWithAi(job: JobJd, trace?: ServerTrace) {
+  const fastMode = DEPLOYMENT_FAST_MODE;
+  trace?.log("job-enrich:start", {
+    fastMode,
+    jobId: job.id,
+    jobTitle: job.jobTitle,
+  });
+
+  let structuredJd: StructuredJd;
+  if (fastMode) {
+    structuredJd = extractStructuredJdQuick(job);
+  } else {
+    try {
+      structuredJd = await extractStructuredJd(job);
+    } catch (error) {
+      trace?.fail("job-enrich:extract-structured-jd", error, {
+        jobId: job.id,
+      });
+      structuredJd = extractStructuredJdQuick(job);
+    }
+  }
+  let companyResearch: CompanyResearch = buildFallbackCompanyResearch();
+
+  if (!fastMode) {
+    try {
+      companyResearch = await buildCompanyResearch(job, trace);
+    } catch (error) {
+      trace?.fail("job-enrich:company-research", error, {
+        jobId: job.id,
+      });
+      companyResearch = {
+        industry: "待补充",
+        companyScale: "待补充",
+        mainBusiness: "待补充",
+        keyProducts: [],
+        reputation: "待补充",
+        summary: "公司补充信息获取失败，本次分析基于现有 JD 内容完成。",
+        searchedAt: createTimestamp(),
+        citations: [],
+      };
+    }
+  }
+
+  const enrichedJob: JobJd = {
+    ...job,
+    companyName: structuredJd.companyName?.trim() || job.companyName,
+    jobTitle: structuredJd.jobTitle?.trim() || job.jobTitle,
+    structuredJd,
+    companyResearch,
+    companyInfo: companyResearch.summary,
+    processingStatus: "scoring",
+    processingError: undefined,
+    updatedAt: createTimestamp(),
+  };
+
+  trace?.log("job-enrich:completed", {
+    jobId: job.id,
+  });
+
+  return { job: enrichedJob, model: getModel() };
+}
+
+function buildFallbackScoreResult(
+  job: JobJd,
+  resumeVersions: ResumeVersion[],
+  error: unknown,
+): JobAnalysisResult {
+  const errorMsg = error instanceof Error ? error.message : "AI 评分暂时不可用";
+  return {
+    id: createEntityId("analysis"),
+    jobId: job.id,
+    recommendedResumeVersionId: resumeVersions[0]?.id ?? "",
+    matchScore: 0,
+    scoreBreakdown: {
+      industryMatch: 0,
+      companyStrength: 0,
+      roleMatch: 0,
+      salaryCompetitiveness: 0,
+      growthPotential: 0,
+    },
+    applyDecision: "cautious",
+    needsTailoring: false,
+    mainRisk: "AI 评分失败: " + errorMsg,
+    summary:
+      "AI 评分暂时不可用，请稍后重试或手动评估。JD 结构化信息和公司补充信息已就绪，可参考现有数据进行判断。",
+    status: "ready",
+    createdAt: new Date().toISOString(),
+  };
+}
+
+export async function scoreJobWithAi(
+  job: JobJd,
+  resumeVersions: ResumeVersion[],
+  trace?: ServerTrace,
+) {
+  try {
+    const { data, model } = await requestJson<{
+      analyses: Array<{
+        jobId: string;
+        recommendedResumeVersionId: string;
+        scoreBreakdown: ScoreBreakdown;
+        applyDecision: JobAnalysisResult["applyDecision"];
+        needsTailoring: boolean;
+        mainRisk: string;
+        summary: string;
+      }>;
+    }>({
+      system:
+        "你是 JobLoop 的岗位评分与投递决策助手。请基于结构化 JD、公司补充信息和简历版本，对单个岗位打分并输出求职决策摘要。评分体系固定：行业匹配度25%、公司实力20%、岗位匹配度30%、薪资竞争力15%、成长性10%。每个维度先单独给0-100分，再按权重计算总分。若 JD 缺少薪资信息，薪资竞争力按中性分50处理，并在 summary 或 mainRisk 中说明“薪资信息缺失”。只返回合法 JSON。",
+      prompt: {
+        task: "single_job_score",
+        scoringWeights: {
+          industryMatch: 25,
+          companyStrength: 20,
+          roleMatch: 30,
+          salaryCompetitiveness: 15,
+          growthPotential: 10,
+        },
+        resumeVersions: resumeVersions.map((version) => ({
+          id: version.id,
+          name: version.name,
+          targetDirection: version.targetDirection,
+          rewriteFocus: version.rewriteFocus,
+          content: version.content,
+        })),
+        jobs: [
+          {
+            id: job.id,
+            companyName: job.companyName,
+            jobTitle: job.jobTitle,
+            structuredJd: toPromptStructuredJd(job.structuredJd),
+            companyResearch: toPromptCompanyResearch(job.companyResearch),
+          },
+        ],
+        outputSchema: {
+          analyses: [
+            {
+              jobId: job.id,
+              recommendedResumeVersionId: "",
+              scoreBreakdown: {
+                industryMatch: 0,
+                companyStrength: 0,
+                roleMatch: 0,
+                salaryCompetitiveness: 0,
+                growthPotential: 0,
+              },
+              applyDecision: "recommend",
+              needsTailoring: true,
+              mainRisk: "",
+              summary: "",
+            },
+          ],
+        },
+      },
+      trace,
+      traceStep: "job-score:model",
+    });
+
+    const item = data.analyses.find((analysis) => analysis.jobId === job.id);
+
+    if (!item) {
+      throw new Error(`缺少岗位 ${job.jobTitle} 的评分结果`);
+    }
+
+    return {
+      result: normalizeAnalysisRecord(item, job, resumeVersions),
+      model,
+    };
+  } catch (error) {
+    trace?.fail("job-score:ai-failed", error, { jobId: job.id });
+    return {
+      result: buildFallbackScoreResult(job, resumeVersions, error),
+      model: getModel(),
+    };
+  }
+}
+
 export async function generateBatchAnalysisWithAi(
   jobs: JobJd[],
   resumeVersions: ResumeVersion[],
@@ -567,9 +887,20 @@ export async function generateBatchAnalysisWithAi(
         jobId: job.id,
         jobTitle: job.jobTitle,
       });
-      const structuredJd = fastMode
-        ? extractStructuredJdQuick(job)
-        : await extractStructuredJd(job);
+      let structuredJd: StructuredJd;
+      if (fastMode) {
+        structuredJd = extractStructuredJdQuick(job);
+      } else {
+        try {
+          structuredJd = await extractStructuredJd(job);
+        } catch (error) {
+          trace?.fail("batch-analysis:job:extract-structured-jd", error, {
+            jobId: job.id,
+            jobTitle: job.jobTitle,
+          });
+          structuredJd = extractStructuredJdQuick(job);
+        }
+      }
       let companyResearch: CompanyResearch = buildFallbackCompanyResearch();
 
       if (!fastMode) {
@@ -719,7 +1050,7 @@ export async function generateJobDetailWithAi(
 ) {
   const { data, model } = await requestJson<{
     conclusion: string;
-    report: string;
+    report: unknown;
     scoreBreakdownReasons: ScoreBreakdownReasons;
     outreachMessage: string;
     interviewPrep: string[];
@@ -758,7 +1089,7 @@ export async function generateJobDetailWithAi(
     jobId: job.id,
     analysisResultId: result.id,
     conclusion: data.conclusion,
-    report: data.report,
+    report: normalizeDetailReport(data.report),
     scoreBreakdownReasons: data.scoreBreakdownReasons,
     outreachMessage: data.outreachMessage,
     interviewPrep: data.interviewPrep.slice(0, 3),

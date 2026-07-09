@@ -35,6 +35,51 @@ export function createSourceResume(
   };
 }
 
+export function createImportedResumeAsset({
+  title,
+  content,
+  sourceType,
+  fileName,
+  fileUrl,
+  extractionStatus,
+}: {
+  title: string;
+  content: string;
+  sourceType: SourceResume["sourceType"];
+  fileName?: string;
+  fileUrl?: string;
+  extractionStatus?: SourceResume["extractionStatus"];
+}) {
+  const sourceResume = createSourceResume(content);
+  const timestamp = createTimestamp();
+  const normalizedTitle = title.trim() || "基础简历";
+
+  sourceResume.title = normalizedTitle;
+  sourceResume.sourceType = sourceType;
+  sourceResume.fileName = fileName;
+  sourceResume.fileUrl = fileUrl;
+  sourceResume.extractionStatus = extractionStatus;
+  sourceResume.extractionMethod = sourceType === "pdf" ? "pdf-text" : undefined;
+  sourceResume.updatedAt = timestamp;
+
+  const resumeVersion: ResumeVersion = {
+    id: createEntityId("resume"),
+    sourceResumeId: sourceResume.id,
+    name: normalizedTitle,
+    targetDirection: "通用基础版",
+    rewriteFocus:
+      sourceType === "pdf"
+        ? "由 PDF 文本提取生成，可继续校对并作为 AI 分析输入。"
+        : "由粘贴文本创建，可继续编辑并作为 AI 分析输入。",
+    content: normalizeResumeContent(content),
+    status: "saved",
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  };
+
+  return { sourceResume, resumeVersion };
+}
+
 export function createManualResumeVersion({
   name,
   targetDirection,

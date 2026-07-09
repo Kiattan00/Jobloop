@@ -153,8 +153,12 @@ export default function GenerateResumesPage() {
             <PageHeader
               eyebrow="Generate versions"
               title="从原始简历生成定向版本"
-              subtitle="单次只针对 1 个目标岗位生成 1 份 AI 草稿；你确认后才会进入简历库。AI 会尽量保留原始经历证据，并改写成更贴近目标岗位的表达。"
+              subtitle="该入口已降级为辅助能力，适合在你需要额外参考草稿时使用。当前主流程优先推荐在简历库中直接粘贴或上传文本型 PDF。"
             />
+            <div className="mt-5 rounded-lg border border-amber-200/30 bg-amber-300/10 p-4 text-sm text-amber-50">
+              当前推荐主路径：先在简历库录入真实简历，再进入岗位分析。这里的 AI
+              生成功能保留为补充选项，不再作为默认入口。
+            </div>
             <div className="mt-6">
               <ResumeSourceForm
                 onChange={setContent}
@@ -170,7 +174,7 @@ export default function GenerateResumesPage() {
                 onClick={handleGenerate}
                 type="button"
               >
-                {loading ? "正在生成..." : "生成 1 个定向版本"}
+                {loading ? "正在生成..." : "辅助生成 1 个定向版本"}
               </button>
               <ActionLink href="/resumes">查看简历库</ActionLink>
             </div>

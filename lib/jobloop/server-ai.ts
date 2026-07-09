@@ -1,4 +1,4 @@
-import "server-only";
+﻿import "server-only";
 
 import OpenAI from "openai";
 import { createEntityId, createTimestamp } from "@/lib/jobloop/generators";
@@ -19,6 +19,7 @@ import type {
 const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
 const DEFAULT_MODEL = "deepseek/deepseek-v4-flash";
 const DEPLOYMENT_FAST_MODE = process.env.AI_FAST_MODE === "true";
+const RESUME_SEARCH_TIMEOUT_MS = 8_000;
 const DETAIL_SYSTEM = `
 你是 JobLoop 的高级求职顾问，擅长从招聘视角拆解岗位本质。你的任务是为候选人生成一份**深度、可执行**的单岗位分析报告。
 
@@ -415,12 +416,16 @@ async function requestJson<T>({
     promptLength: messages[messages.length - 1]?.content.length ?? 0,
     systemLength: system.length,
   });
-  const completion = await client.chat.completions.create({
-    model,
-    temperature: 0.2,
-    messages,
-    response_format: { type: "json_object" },
-  });
+  const completion = await client.chat.completions.create(
+    {
+      model,
+      temperature: 0.2,
+      max_tokens: 4096,
+      messages,
+      response_format: { type: "json_object" },
+    },
+    { timeout: 60_000 },
+  );
 
   const rawText = extractTextContent(completion.choices[0]?.message?.content);
   if (!rawText) {
@@ -490,12 +495,22 @@ function parseSearchCitations(message: {
 
 async function buildResumeSearchContext(
   sourceResume: SourceResume,
+  trace?: ServerTrace,
 ): Promise<ResumeSearchContext | null> {
   const apiKey = process.env.OPENROUTER_API_KEY;
 
   if (!apiKey) {
     throw new Error("Missing OPENROUTER_API_KEY");
   }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(
+    () => controller.abort(),
+    RESUME_SEARCH_TIMEOUT_MS,
+  );
+  trace?.log("resume:search-context:start", {
+    timeoutMs: RESUME_SEARCH_TIMEOUT_MS,
+  });
 
   const response = await fetch(`${OPENROUTER_BASE_URL}/chat/completions`, {
     method: "POST",
@@ -504,6 +519,7 @@ async function buildResumeSearchContext(
       "Content-Type": "application/json",
       ...getDefaultHeaders(),
     },
+    signal: controller.signal,
     body: JSON.stringify({
       model: getModel(),
       temperature: 0.1,
@@ -535,6 +551,7 @@ async function buildResumeSearchContext(
       tools: [{ type: "openrouter:web_search" }],
     }),
   });
+  clearTimeout(timeout);
 
   if (!response.ok) {
     throw new Error(`Resume research failed with status ${response.status}`);
@@ -553,11 +570,16 @@ async function buildResumeSearchContext(
   const rawText = extractTextContent(message?.content);
 
   if (!rawText) {
+    trace?.log("resume:search-context:empty");
     return null;
   }
 
   const parsed =
     parseJsonPayload<Omit<ResumeSearchContext, "citations">>(rawText);
+  trace?.log("resume:search-context:success", {
+    citationCount: parseSearchCitations(message || {}).length,
+    rawTextLength: rawText.length,
+  });
 
   return {
     ...parsed,
@@ -599,7 +621,7 @@ function clampScore(value: number) {
   return Math.max(0, Math.min(100, Math.round(value)));
 }
 
-function getNeutralBreakdown(): ScoreBreakdown {
+function _getNeutralBreakdown(): ScoreBreakdown {
   return {
     industryMatch: 50,
     companyStrength: 50,
@@ -750,7 +772,7 @@ export async function generateResumeVersionsWithAi(
 
   if (!fastMode) {
     try {
-      searchContext = await buildResumeSearchContext(sourceResume);
+      searchContext = await buildResumeSearchContext(sourceResume, trace);
     } catch (error) {
       trace?.fail("resume:search-context", error);
       console.error("Failed to build resume search context", error);

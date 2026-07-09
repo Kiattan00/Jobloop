@@ -2,6 +2,17 @@ export type ResumeVersionStatus = "draft" | "saved";
 
 export type ApplyDecision = "recommend" | "cautious" | "not_recommended";
 
+export type ResumeSourceType = "pasted" | "pdf";
+
+export type ResumeExtractionStatus = "pending" | "success" | "failed";
+
+export type JobProcessingStatus =
+  | "draft"
+  | "enriching"
+  | "scoring"
+  | "ready"
+  | "failed";
+
 export type AiOutputType =
   | "resume_versions"
   | "batch_analysis"
@@ -13,6 +24,11 @@ export type SourceResume = {
   title: string;
   content: string;
   targetIntent?: string;
+  sourceType?: ResumeSourceType;
+  fileName?: string;
+  fileUrl?: string;
+  extractionStatus?: ResumeExtractionStatus;
+  extractionMethod?: "pdf-text";
   createdAt: string;
   updatedAt: string;
 };
@@ -74,6 +90,8 @@ export type JobJd = {
   companyInfo?: string;
   structuredJd?: StructuredJd;
   companyResearch?: CompanyResearch;
+  processingStatus?: JobProcessingStatus;
+  processingError?: string;
   createdAt: string;
   updatedAt: string;
 };
@@ -104,6 +122,8 @@ export type JobAnalysisResult = {
   needsTailoring: boolean;
   mainRisk: string;
   summary: string;
+  status?: JobProcessingStatus;
+  errorMessage?: string;
   createdAt: string;
 };
 
