@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { maybeLogAiRun } from "@/lib/jobloop/ai-run-log";
 import { createTailoredResumeAiOutput } from "@/lib/jobloop/generators";
 import { generateTailoredResumeWithAi } from "@/lib/jobloop/server-ai-jobs";
 import type {
@@ -25,9 +26,13 @@ export async function POST(request: Request) {
       detail,
     );
 
+    const aiOutput = createTailoredResumeAiOutput(tailoredResume, model);
+
+    await maybeLogAiRun(request, aiOutput);
+
     return NextResponse.json({
       tailoredResume,
-      aiOutput: createTailoredResumeAiOutput(tailoredResume, model),
+      aiOutput,
     });
   } catch (error) {
     return NextResponse.json(

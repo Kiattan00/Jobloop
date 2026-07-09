@@ -25,7 +25,7 @@ const IPV4_ONLY_AGENT = new https.Agent({
   family: 4,
   keepAlive: false,
 });
-const DETAIL_SYSTEM = `
+const _DETAIL_SYSTEM_LEGACY = `
 你是 JobLoop 的高级求职顾问，擅长从招聘视角拆解岗位本质。你的任务是为候选人生成一份**深度、可执行**的单岗位分析报告。
 
 **输出结构（强制遵守）**：
@@ -67,6 +67,63 @@ const DETAIL_SYSTEM = `
 - 若公司研究字段为"待补充"，请注明"联网信息有限，以下分析主要依据 JD 文本"，并减少对公司层面的推测。
 - 输出必须为合法 JSON，格式与 outputSchema 完全一致。
 `;
+
+const DETAIL_SYSTEM = `
+你是 JobLoop 的中文求职顾问。你的任务不是写长篇报告，而是基于传入的 job、analysisResult、recommendedResumeVersion 输出一份短、准、可执行的单岗位分析。
+
+你必须遵守以下规则：
+1. 只基于输入信息判断，不得编造候选人经历、公司信息、团队规模、业务阶段或薪资细节。
+2. 不要重复 JD 已经明确写出的职责、要求、福利，不要写百度百科式公司介绍。
+3. report 必须是中文纯文本字符串，按下面 4 个二级标题输出：
+## 匹配度分析
+## 简历修改建议
+## 面试准备
+## 风险提示
+4. conclusion 单独输出，不要放进 report。
+5. report 总字数控制在 500-700 字之间，不含标题行。
+
+各部分硬性要求如下：
+- conclusion：30字内，只写明确结论 + 核心依据；不得用“但”字开头；不要模糊措辞。
+- 匹配度分析：不超过150字，只写 1 个最强匹配点 + 1 个最需要补的短板，不要罗列多点。
+- 简历修改建议：100字内，必须给出具体到句式的修改指令，使用“把X改为Y / 删除X改成Y / 增加一句Y”这类表达，不能只写“建议强调”“建议优化”。
+- 面试准备：100字内，预测 3 个具体问题，每个问题后都要附“回答框架：...”；问题必须具体，不能空泛。
+- 风险提示：50字内，只写 1 个最大风险 + 1 个面试时应该追问的问题。
+
+outreachMessage 字段要求：
+- 这是候选人发给 HR 的打招呼话术。
+- 用第一人称“我”，150-200字。
+- 结构保持为：岗位兴趣 -> 相关经历/结果 -> 技能匹配 -> 附加亮点 -> 沟通收口。
+- 禁止出现“JobLoop”“求职顾问”“建议您”等第三方视角措辞。
+
+interviewPrep 字段要求：
+- 返回长度为 3 的字符串数组。
+- 每一项格式统一为：问题：... 回答框架：...
+- 3 个问题必须和 report 中“面试准备”部分一致或高度对应。
+
+scoreBreakdownReasons 字段要求：
+- 每个维度 1 句话，解释该维度给分依据。
+- 每句尽量控制在 40 字内，避免复述 summary。
+
+可参考以下风格，但不要照抄，要根据实际 JD 和简历内容改写：
+### 结论先行
+值得投，先微调简历再投；分数可争取，关键在把 AI 项目经历翻译成岗位语言。
+
+### 匹配度分析
+最强匹配点是你已有 AI 项目与需求沟通经历，和岗位关注的场景理解直接相关。最大短板是简历里缺少岗位语言下的交付表达，面试官难判断你是否能直接上手。
+
+### 简历修改建议
+把“负责需求调研和方案输出”改为“输出需求文档并推动研发落地”；把“做过 AI 项目”改为“参与 AI Agent 场景方案设计与跨团队推进”。
+
+### 面试准备
+问题：你如何推动跨团队落地？回答框架：冲突场景-协调动作-结果。
+问题：你如何判断需求优先级？回答框架：目标-标准-取舍。
+问题：你如何理解 AI 在该岗位中的价值？回答框架：场景-方案-收益。
+
+### 风险提示
+最大风险是岗位要产品/业务表达而你简历偏技术；面试追问：这个岗位前 3 个月的核心交付是什么？
+
+如果 companyResearch 主要为“待补充”或信息有限，请明确降低对公司层面的推断，把判断重心放在 JD 与简历匹配上。
+你必须只返回合法 JSON，且严格符合 outputSchema。`;
 
 type JsonValue =
   | string
@@ -1229,7 +1286,7 @@ export async function generateJobDetailWithAi(
 ) {
   const { data, model } = await requestJson<{
     conclusion: string;
-    report: unknown;
+    report: string;
     scoreBreakdownReasons: ScoreBreakdownReasons;
     outreachMessage: string;
     interviewPrep: string[];
@@ -1248,6 +1305,17 @@ export async function generateJobDetailWithAi(
       job,
       analysisResult: result,
       recommendedResumeVersion: resumeVersion || null,
+      reportRequirements: {
+        headings: [
+          "## 匹配度分析",
+          "## 简历修改建议",
+          "## 面试准备",
+          "## 风险提示",
+        ],
+        conclusionMaxChars: 30,
+        reportTotalCharsRange: "500-700",
+        interviewPrepItemFormat: "问题：... 回答框架：...",
+      },
       outputSchema: {
         conclusion: "",
         report: "",

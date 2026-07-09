@@ -26,6 +26,7 @@ import {
   updateAnalysisResult,
   updateJob,
 } from "@/lib/jobloop/storage";
+import { fetchWithSupabaseAuth } from "@/lib/jobloop/supabase-browser";
 import type {
   AiOutput,
   JobAnalysisResult,
@@ -193,14 +194,17 @@ export default function AnalysesPage() {
 
         const enrichController = new AbortController();
         const enrichTimer = setTimeout(() => enrichController.abort(), 150_000);
-        const enrichResponse = await fetch("/api/ai/job-enrich", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
+        const enrichResponse = await fetchWithSupabaseAuth(
+          "/api/ai/job-enrich",
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ job }),
+            signal: enrichController.signal,
           },
-          body: JSON.stringify({ job }),
-          signal: enrichController.signal,
-        });
+        );
         clearTimeout(enrichTimer);
 
         const enrichData = (await enrichResponse.json()) as {
@@ -226,7 +230,7 @@ export default function AnalysesPage() {
 
         const scoreController = new AbortController();
         const scoreTimer = setTimeout(() => scoreController.abort(), 150_000);
-        const scoreResponse = await fetch("/api/ai/job-score", {
+        const scoreResponse = await fetchWithSupabaseAuth("/api/ai/job-score", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -267,18 +271,21 @@ export default function AnalysesPage() {
         );
         const detailController = new AbortController();
         const detailTimer = setTimeout(() => detailController.abort(), 150_000);
-        const detailResponse = await fetch("/api/ai/job-detail", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
+        const detailResponse = await fetchWithSupabaseAuth(
+          "/api/ai/job-detail",
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              job: enrichData.job,
+              result: scoreData.result,
+              resumeVersion: recommendedVersion,
+            }),
+            signal: detailController.signal,
           },
-          body: JSON.stringify({
-            job: enrichData.job,
-            result: scoreData.result,
-            resumeVersion: recommendedVersion,
-          }),
-          signal: detailController.signal,
-        });
+        );
         clearTimeout(detailTimer);
 
         const detailData = (await detailResponse.json()) as {

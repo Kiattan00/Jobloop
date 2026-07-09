@@ -1,16 +1,11 @@
+"use client";
+
 import type { ResumeVersion, SourceResume } from "@/lib/jobloop/types";
 import { GlassPanel } from "./glass-panel";
 import { ResumeVersionActions } from "./resume-version-actions";
 
-const formatDirectionLabel = (version: ResumeVersion) => {
-  const fromName = version.name.replace(/版$/u, "").trim();
-  if (fromName) {
-    return fromName.endsWith("方向") ? fromName : `${fromName}方向`;
-  }
-
-  const cleaned = version.targetDirection.replace(/岗位$/u, "").trim();
-  return cleaned.endsWith("方向") ? cleaned : `${cleaned}方向`;
-};
+const formatDirectionLabel = (version: ResumeVersion) =>
+  version.targetDirection.trim() || version.name.trim();
 
 export function ResumeVersionCard({
   version,
@@ -69,10 +64,10 @@ export function ResumeVersionCard({
       </div>
 
       <div className="mt-5 flex flex-wrap gap-2">
-        {sourceResume?.fileUrl ? (
+        {sourceResume?.fileUrl || sourceResume?.sourceRecordId ? (
           <a
             className="inline-flex h-9 items-center gap-2 rounded-md border border-white/20 bg-white/10 px-3 text-sm font-semibold text-white/78"
-            href={sourceResume.fileUrl}
+            href={`/resumes/pdf/${sourceResume.id}`}
             rel="noreferrer"
             target="_blank"
           >
@@ -81,7 +76,7 @@ export function ResumeVersionCard({
         ) : null}
         {readOnly ? (
           <p className="self-center text-sm text-white/54">
-            当前为预设示例内容，录入真实简历后会替换展示。
+            当前展示的是示例内容，录入真实简历后会自动替换。
           </p>
         ) : (
           <div className="flex-1">

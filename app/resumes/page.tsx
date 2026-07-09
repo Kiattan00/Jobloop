@@ -21,6 +21,10 @@ import {
   updateResumeVersion,
   upsertSourceResume,
 } from "@/lib/jobloop/storage";
+import {
+  fetchWithSupabaseAuth,
+  isSupabaseEnabledInBrowser,
+} from "@/lib/jobloop/supabase-browser";
 import type { JobLoopState, ResumeVersion } from "@/lib/jobloop/types";
 
 export default function ResumesPage() {
@@ -131,7 +135,7 @@ export default function ResumesPage() {
       const formData = new FormData();
       formData.set("file", file);
 
-      const response = await fetch("/api/resumes/upload-pdf", {
+      const response = await fetchWithSupabaseAuth("/api/resumes/upload-pdf", {
         method: "POST",
         body: formData,
       });
@@ -139,6 +143,9 @@ export default function ResumesPage() {
         extractedText?: string;
         detectedTitle?: string;
         fileName?: string;
+        sourceRecordId?: string;
+        pdfStoragePath?: string;
+        totalPages?: number;
         error?: string;
       };
 
@@ -146,13 +153,20 @@ export default function ResumesPage() {
         throw new Error(data.error || "PDF 识别失败，请稍后重试。");
       }
 
-      const dataUrl = await readFileAsDataUrl(file);
+      const canUseSupabasePdf =
+        Boolean(data.sourceRecordId) && isSupabaseEnabledInBrowser();
+      const dataUrl = canUseSupabasePdf
+        ? undefined
+        : await readFileAsDataUrl(file);
       const { sourceResume, resumeVersion } = createImportedResumeAsset({
         title: uploadTitle.trim() || data.detectedTitle || "PDF 简历",
         content: data.extractedText,
         sourceType: "pdf",
         fileName: data.fileName || file.name,
         fileUrl: dataUrl,
+        sourceRecordId: data.sourceRecordId,
+        pdfStoragePath: data.pdfStoragePath,
+        pdfPageCount: data.totalPages,
         extractionStatus: "success",
       });
 

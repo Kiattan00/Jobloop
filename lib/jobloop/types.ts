@@ -15,6 +15,7 @@ export type JobProcessingStatus =
   | "failed";
 
 export type AiOutputType =
+  | "job_enrich"
   | "resume_versions"
   | "batch_analysis"
   | "job_detail_analysis"
@@ -28,6 +29,9 @@ export type SourceResume = {
   sourceType?: ResumeSourceType;
   fileName?: string;
   fileUrl?: string;
+  sourceRecordId?: string;
+  pdfStoragePath?: string;
+  pdfPageCount?: number;
   extractionStatus?: ResumeExtractionStatus;
   extractionMethod?: "pdf-text";
   createdAt: string;

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { maybeLogAiRun } from "@/lib/jobloop/ai-run-log";
 import { createBatchAnalysisAiOutput } from "@/lib/jobloop/generators";
 import { scoreJobWithAi } from "@/lib/jobloop/server-ai-jobs";
 import { createServerTrace } from "@/lib/jobloop/server-trace";
@@ -28,9 +29,18 @@ export async function POST(request: Request) {
       model,
     });
 
+    const aiOutput = createBatchAnalysisAiOutput(
+      batchId,
+      [job],
+      [result],
+      model,
+    );
+
+    await maybeLogAiRun(request, aiOutput);
+
     return NextResponse.json({
       result,
-      aiOutput: createBatchAnalysisAiOutput(batchId, [job], [result], model),
+      aiOutput,
       traceId: trace.id,
     });
   } catch (error) {

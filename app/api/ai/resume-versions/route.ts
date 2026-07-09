@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { maybeLogAiRun } from "@/lib/jobloop/ai-run-log";
 import { createResumeVersionsAiOutput } from "@/lib/jobloop/generators";
 import { generateResumeVersionsWithAi } from "@/lib/jobloop/server-ai";
 import { createServerTrace } from "@/lib/jobloop/server-trace";
@@ -25,9 +26,17 @@ export async function POST(request: Request) {
       versionCount: versions.length,
     });
 
+    const aiOutput = createResumeVersionsAiOutput(
+      sourceResume,
+      versions,
+      model,
+    );
+
+    await maybeLogAiRun(request, aiOutput);
+
     const response = NextResponse.json({
       versions,
-      aiOutput: createResumeVersionsAiOutput(sourceResume, versions, model),
+      aiOutput,
       traceId: trace.id,
     });
     response.headers.set("x-jobloop-trace-id", trace.id);

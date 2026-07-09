@@ -22,6 +22,7 @@ import {
   saveResumeVersions,
   upsertSourceResume,
 } from "@/lib/jobloop/storage";
+import { fetchWithSupabaseAuth } from "@/lib/jobloop/supabase-browser";
 import type {
   AiOutput,
   ResumeVersion,
@@ -74,7 +75,7 @@ export default function GenerateResumesPage() {
       setLoading(true);
       setError(null);
 
-      const response = await fetch("/api/ai/resume-versions", {
+      const response = await fetchWithSupabaseAuth("/api/ai/resume-versions", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

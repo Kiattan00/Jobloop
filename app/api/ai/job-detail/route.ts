@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { maybeLogAiRun } from "@/lib/jobloop/ai-run-log";
 import { createJobDetailAiOutput } from "@/lib/jobloop/generators";
 import { generateJobDetailWithAi } from "@/lib/jobloop/server-ai-jobs";
 import type {
@@ -27,9 +28,13 @@ export async function POST(request: Request) {
       resumeVersion,
     );
 
+    const aiOutput = createJobDetailAiOutput(detail, job, resumeVersion, model);
+
+    await maybeLogAiRun(request, aiOutput);
+
     return NextResponse.json({
       detail,
-      aiOutput: createJobDetailAiOutput(detail, job, resumeVersion, model),
+      aiOutput,
     });
   } catch (error) {
     return NextResponse.json(

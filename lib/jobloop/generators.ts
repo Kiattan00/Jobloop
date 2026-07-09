@@ -41,6 +41,9 @@ export function createImportedResumeAsset({
   sourceType,
   fileName,
   fileUrl,
+  sourceRecordId,
+  pdfStoragePath,
+  pdfPageCount,
   extractionStatus,
 }: {
   title: string;
@@ -48,6 +51,9 @@ export function createImportedResumeAsset({
   sourceType: SourceResume["sourceType"];
   fileName?: string;
   fileUrl?: string;
+  sourceRecordId?: string;
+  pdfStoragePath?: string;
+  pdfPageCount?: number;
   extractionStatus?: SourceResume["extractionStatus"];
 }) {
   const sourceResume = createSourceResume(content);
@@ -58,6 +64,9 @@ export function createImportedResumeAsset({
   sourceResume.sourceType = sourceType;
   sourceResume.fileName = fileName;
   sourceResume.fileUrl = fileUrl;
+  sourceResume.sourceRecordId = sourceRecordId;
+  sourceResume.pdfStoragePath = pdfStoragePath;
+  sourceResume.pdfPageCount = pdfPageCount;
   sourceResume.extractionStatus = extractionStatus;
   sourceResume.extractionMethod = sourceType === "pdf" ? "pdf-text" : undefined;
   sourceResume.updatedAt = timestamp;

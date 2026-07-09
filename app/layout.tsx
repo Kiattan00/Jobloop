@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { SupabaseAuthBootstrap } from "@/components/jobloop/supabase-auth-bootstrap";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -13,7 +14,10 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="zh-CN" className="h-full">
-      <body className="flex min-h-full flex-col antialiased">{children}</body>
+      <body className="flex min-h-full flex-col antialiased">
+        <SupabaseAuthBootstrap />
+        {children}
+      </body>
     </html>
   );
 }

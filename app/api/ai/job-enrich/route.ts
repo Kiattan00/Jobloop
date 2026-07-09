@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
+import { maybeLogAiRun } from "@/lib/jobloop/ai-run-log";
 import { createTimestamp } from "@/lib/jobloop/generators";
 import {
   enrichCompanyOnly,
   extractStructuredJdOnly,
 } from "@/lib/jobloop/server-ai-jobs";
 import { createServerTrace } from "@/lib/jobloop/server-trace";
-import type { JobJd } from "@/lib/jobloop/types";
+import type { AiOutput, JobJd } from "@/lib/jobloop/types";
 
 export const runtime = "nodejs";
 export const maxDuration = 180;
@@ -40,6 +41,20 @@ export async function POST(request: Request) {
     };
 
     trace.finish({ jobId: job.id, model });
+
+    const aiOutput: AiOutput = {
+      id: `ai-enrich-${job.id}`,
+      type: "job_enrich",
+      provider: "openrouter",
+      model,
+      resumeVersionIds: [],
+      jobIds: [job.id],
+      inputSummary: `补充 ${job.companyName} / ${job.jobTitle} 的结构化 JD 与公司信息`,
+      outputRefId: job.id,
+      createdAt: createTimestamp(),
+    };
+
+    await maybeLogAiRun(request, aiOutput);
 
     return NextResponse.json({
       job: enrichedJob,

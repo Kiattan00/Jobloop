@@ -14,6 +14,7 @@ import {
   saveDetailAnalysis,
   saveTailoredResume,
 } from "@/lib/jobloop/storage";
+import { fetchWithSupabaseAuth } from "@/lib/jobloop/supabase-browser";
 import type {
   AiOutput,
   JobDetailAnalysis,
@@ -55,7 +56,7 @@ export default function AnalysisDetailPage() {
       if (!existingDetail) {
         setLoading(true);
         try {
-          const response = await fetch("/api/ai/job-detail", {
+          const response = await fetchWithSupabaseAuth("/api/ai/job-detail", {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
@@ -167,7 +168,7 @@ export default function AnalysisDetailPage() {
     setError(null);
 
     try {
-      const response = await fetch("/api/ai/tailored-resume", {
+      const response = await fetchWithSupabaseAuth("/api/ai/tailored-resume", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
