@@ -20,7 +20,7 @@ const DEFAULT_MODEL = "openai/gpt-4o-mini";
 const DEPLOYMENT_FAST_MODE = process.env.AI_FAST_MODE === "true";
 const COMPANY_RESEARCH_TIMEOUT_MS = 60_000;
 const REQUEST_TIMEOUT_MS = 120_000;
-const OPENROUTER_MAX_RETRIES = 2;
+const OPENROUTER_MAX_RETRIES = 3;
 const IPV4_ONLY_AGENT = new https.Agent({
   family: 4,
   keepAlive: false,
@@ -272,7 +272,7 @@ async function postOpenRouterChatCompletion(body: Record<string, unknown>) {
         attempt < OPENROUTER_MAX_RETRIES &&
         shouldRetryOpenRouterError(error)
       ) {
-        await sleep(400 * (attempt + 1));
+        await sleep(800 * (attempt + 1));
         continue;
       }
       throw error;
