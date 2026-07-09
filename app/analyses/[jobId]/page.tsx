@@ -54,9 +54,10 @@ export default function AnalysisDetailPage() {
       }
 
       if (!existingDetail) {
+        setState(current);
         setLoading(true);
         try {
-          const response = await fetchWithSupabaseAuth("/api/ai/job-detail", {
+          const response = await fetch("/api/ai/job-detail", {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
@@ -85,7 +86,6 @@ export default function AnalysisDetailPage() {
               ? requestError.message
               : "单岗位分析生成失败，请稍后重试。",
           );
-          setState(current);
         } finally {
           setLoading(false);
         }
@@ -249,6 +249,42 @@ export default function AnalysisDetailPage() {
               outputs={traceOutputs}
               resumeVersion={resumeVersion}
             />
+          </>
+        ) : loading ? (
+          <>
+            <JobAnalysisDetail
+              detail={{
+                id: "",
+                jobId: job.id,
+                analysisResultId: result.id,
+                createdAt: new Date().toISOString(),
+                conclusion: "正在生成分析报告...",
+                report: "",
+                scoreBreakdownReasons: {
+                  industryMatch: "",
+                  companyStrength: "",
+                  roleMatch: "",
+                  salaryCompetitiveness: "",
+                  growthPotential: "",
+                },
+                outreachMessage: "",
+                interviewPrep: [],
+              }}
+              job={job}
+              loading={true}
+              result={result}
+              resumeVersion={resumeVersion}
+            />
+            <TailoredResumePanel
+              canGenerate={canGenerateTailored}
+              helperText={tailoredHelperText}
+              onGenerate={() => void generateTailored()}
+              tailoredResume={tailoredResume}
+            />
+            <div className="flex items-center justify-center gap-2 py-8 text-sm text-cyan-200/50">
+              <span className="inline-block size-3 animate-pulse rounded-full bg-cyan-300/60" />
+              正在生成投递建议与面试准备...
+            </div>
           </>
         ) : (
           <EmptyState

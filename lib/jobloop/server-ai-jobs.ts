@@ -732,7 +732,7 @@ async function extractStructuredJd(job: JobJd) {
     { structuredJd?: StructuredJd } & Partial<StructuredJd>
   >({
     system:
-      "你是 JobLoop 的中文 JD 结构化提取助手。你只做信息抽取，不做评价，不编造缺失信息。必须先确认当前输入只对应 1 份 JD，再从该 JD 中准确抽取公司名称和招聘岗位名称。公司名称不能误填为招聘人姓名、活跃时间、城市、薪资或福利标签；岗位名称不能误填为整段职责、日期、招聘文案或\u201C职位详情\u201D。薪资范围（salaryRange）请从 JD 文本中提取，常见格式如\u201C10-15K\u201D、\u201C15K-25K\u201D等，preExtractedSalary 字段已提供初步识别结果供参考。若 JD 未提供某字段，则返回空字符串或空数组。只返回合法 JSON。",
+      "你是 JobLoop 的中文 JD 结构化提取助手。你只做信息抽取，不做评价，不编造缺失信息。必须先确认当前输入只对应 1 份 JD，再从该 JD 中准确抽取以下字段：公司名称（companyName）、招聘岗位名称（jobTitle）、工作地点（location）、工作年限要求（experienceRequirement）、薪资范围（salaryRange）。公司名称不能误填为招聘人姓名、活跃时间、城市、薪资或福利标签；岗位名称不能误填为整段职责、日期、招聘文案或\u201C职位详情\u201D。工作地点从 JD 中提取城市名（如\u201C深圳\u201D\u201C北京\u201D），不要附带区/街道。工作年限从 JD 中提取如\u201C1-3年\u201D\u201C3-5年\u201D等。薪资范围（salaryRange）请从 JD 文本中提取，常见格式如\u201C10-15K\u201D、\u201C15K-25K\u201D等，preExtractedSalary 字段已提供初步识别结果供参考。若 JD 未提供某字段，则返回空字符串或空数组。只返回合法 JSON。",
     prompt: {
       task: "extract_structured_jd",
       outputSchema: {

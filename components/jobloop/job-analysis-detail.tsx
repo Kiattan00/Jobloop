@@ -54,11 +54,13 @@ export function JobAnalysisDetail({
   result,
   detail,
   resumeVersion,
+  loading,
 }: {
   job: JobJd;
   result: JobAnalysisResult;
   detail: JobDetailAnalysis;
   resumeVersion?: ResumeVersion;
+  loading?: boolean;
 }) {
   const legacyItems = [
     ...(detail.strengths ?? []).map((item) => `匹配优势：${item}`),
@@ -66,10 +68,11 @@ export function JobAnalysisDetail({
     ...(detail.recommendedActions ?? []).map((item) => `建议动作：${item}`),
   ];
 
-  const reportBody =
-    normalizeReportBody(detail.report) ||
-    legacyItems.join("\n") ||
-    "分析报告将在完成最新岗位分析后展示。";
+  const reportBody = loading
+    ? "正在生成分析报告..."
+    : normalizeReportBody(detail.report) ||
+      legacyItems.join("\n") ||
+      "分析报告将在完成最新岗位分析后展示。";
 
   return (
     <GlassPanel intensity="panel" className="p-6 lg:p-7">
@@ -144,7 +147,14 @@ export function JobAnalysisDetail({
           <div className="mt-4 rounded-lg border border-white/12 bg-white/6 p-4">
             <p className="text-sm font-semibold text-white">分析报告正文</p>
             <div className="mt-2 whitespace-pre-wrap text-sm leading-7 text-white/68">
-              {reportBody}
+              {loading ? (
+                <span className="inline-flex items-center gap-2 text-cyan-200/70">
+                  <span className="inline-block size-3 animate-pulse rounded-full bg-cyan-300/60" />
+                  正在生成分析报告...
+                </span>
+              ) : (
+                reportBody
+              )}
             </div>
           </div>
         </div>
