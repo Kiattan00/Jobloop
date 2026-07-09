@@ -61,7 +61,7 @@ export function JobAnalysisCard({
           </p>
           <h3 className="mt-2 text-xl font-semibold text-white">
             {job.jobTitle}
-            <span className="text-cyan-200/80">
+            <span className="text-white/56">
               {formatSalaryMidpoint(job.structuredJd?.salaryRange)}
             </span>
           </h3>

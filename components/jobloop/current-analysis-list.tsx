@@ -79,7 +79,7 @@ export function CurrentAnalysisList({
                 </p>
                 <h3 className="mt-1 text-xl font-semibold text-white">
                   {job.companyName}·{job.jobTitle}
-                  <span className="text-cyan-200/80">
+                  <span className="text-white/56">
                     {formatSalaryMidpoint(job.structuredJd?.salaryRange)}
                   </span>
                 </h3>
