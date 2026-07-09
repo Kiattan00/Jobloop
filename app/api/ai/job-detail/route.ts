@@ -7,6 +7,8 @@ import type {
   ResumeVersion,
 } from "@/lib/jobloop/types";
 
+export const maxDuration = 180;
+
 export async function POST(request: Request) {
   try {
     const {

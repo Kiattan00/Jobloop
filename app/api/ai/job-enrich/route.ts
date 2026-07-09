@@ -8,7 +8,7 @@ import { createServerTrace } from "@/lib/jobloop/server-trace";
 import type { JobJd } from "@/lib/jobloop/types";
 
 export const runtime = "nodejs";
-export const maxDuration = 120;
+export const maxDuration = 180;
 
 export async function POST(request: Request) {
   const trace = createServerTrace("job-enrich-route");

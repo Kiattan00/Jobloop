@@ -17,6 +17,7 @@ export type ParsedJdDraft = {
   jobUrl?: string;
   jdText: string;
   companyInfo?: string;
+  salaryRange?: string;
 };
 
 export type ParsedJdBatchResult = {
@@ -262,6 +263,34 @@ function isLikelyMetaLine(line: string) {
   }
 
   return false;
+}
+
+function extractSalaryRange(text: string): string | undefined {
+  const salaryPatterns = [
+    /(\d{1,2}(?:\.\d)?)\s*-\s*(\d{1,2}(?:\.\d)?)\s*K/i,
+    /(\d{1,2}(?:\.\d)?)\s*[Kk]\s*-\s*(\d{1,2}(?:\.\d)?)\s*[Kk]/i,
+    /(\d{1,2}(?:\.\d)?)\s*-\s*(\d{1,2}(?:\.\d)?)\s*[Kk]/i,
+    /(\d{1,3})\s*-\s*(\d{1,3})\s*[Kk]/i,
+  ];
+
+  for (const pattern of salaryPatterns) {
+    const match = text.match(pattern);
+    if (match) {
+      const low = Number.parseFloat(match[1]);
+      const high = Number.parseFloat(match[2]);
+      if (low > 0 && high > low) {
+        return `${low}-${high}K`;
+      }
+    }
+  }
+
+  const singleSalaryPattern = /(\d{1,2}(?:\.\d)?)\s*K(?:以上|以下)?/i;
+  const singleMatch = text.match(singleSalaryPattern);
+  if (singleMatch) {
+    return `${singleMatch[1]}K`;
+  }
+
+  return undefined;
 }
 
 function looksLikeBodySection(line: string) {
@@ -595,6 +624,7 @@ export function analyzeJdBatchText(text: string): ParsedJdBatchResult {
         jobUrl: findUrl(block),
         jdText: block,
         companyInfo,
+        salaryRange: extractSalaryRange(block),
       };
     }),
   );
@@ -655,6 +685,17 @@ export function createJobsFromDrafts(
     jobUrl: draft.jobUrl,
     jdText: draft.jdText,
     companyInfo: draft.companyInfo,
+    structuredJd: draft.salaryRange
+      ? {
+          companyName: draft.companyName,
+          jobTitle: draft.jobTitle,
+          salaryRange: draft.salaryRange,
+          responsibilities: [],
+          skillRequirements: [],
+          benefits: [],
+          rawSummary: draft.jdText.slice(0, 600),
+        }
+      : undefined,
     createdAt: timestamp,
     updatedAt: timestamp,
   }));

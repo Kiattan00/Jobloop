@@ -21,6 +21,7 @@ import {
   hasPersistedJobLoopState,
   saveAnalysisDraftInputs,
   saveBatchAnalysis,
+  saveDetailAnalysis,
   saveJdBatchWithJobs,
   updateAnalysisResult,
   updateJob,
@@ -28,6 +29,7 @@ import {
 import type {
   AiOutput,
   JobAnalysisResult,
+  JobDetailAnalysis,
   JobJd,
   JobLoopState,
 } from "@/lib/jobloop/types";
@@ -171,7 +173,10 @@ export default function AnalysesPage() {
     setLoading(true);
     setError(null);
 
-    const tasks = jobs.map(async (job, index) => {
+    let failedCount = 0;
+
+    for (let index = 0; index < jobs.length; index += 1) {
+      const job = jobs[index];
       try {
         updateJob({
           ...job,
@@ -256,6 +261,36 @@ export default function AnalysesPage() {
           updatedAt: new Date().toISOString(),
         });
         refreshState();
+
+        const recommendedVersion = state.resumeVersions.find(
+          (v) => v.id === scoreData.result?.recommendedResumeVersionId,
+        );
+        const detailController = new AbortController();
+        const detailTimer = setTimeout(() => detailController.abort(), 150_000);
+        const detailResponse = await fetch("/api/ai/job-detail", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            job: enrichData.job,
+            result: scoreData.result,
+            resumeVersion: recommendedVersion,
+          }),
+          signal: detailController.signal,
+        });
+        clearTimeout(detailTimer);
+
+        const detailData = (await detailResponse.json()) as {
+          detail?: JobDetailAnalysis;
+          aiOutput?: AiOutput;
+          error?: string;
+        };
+
+        if (detailResponse.ok && detailData.detail) {
+          saveDetailAnalysis(detailData.detail, detailData.aiOutput);
+          refreshState();
+        }
       } catch (requestError) {
         const isTimeout =
           requestError instanceof Error &&
@@ -282,15 +317,13 @@ export default function AnalysesPage() {
         });
         refreshState();
       }
-    });
-
-    await Promise.allSettled(tasks);
+    }
 
     const nextState = getJobLoopState();
     setState(nextState);
     setLoading(false);
 
-    const failedCount = nextState.analysisResults.filter(
+    failedCount = nextState.analysisResults.filter(
       (result) =>
         completeBatch.jobIds.includes(result.jobId) &&
         result.status === "failed",

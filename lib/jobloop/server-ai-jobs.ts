@@ -63,6 +63,7 @@ type JsonValue =
   | { [key: string]: JsonValue };
 
 const getModel = () => process.env.OPENROUTER_MODEL || DEFAULT_MODEL;
+const getDetailModel = () => process.env.OPENROUTER_DETAIL_MODEL || getModel();
 
 function getDefaultHeaders() {
   return {
@@ -275,15 +276,17 @@ function normalizeDetailReport(report: unknown) {
 async function requestJson<T>({
   system,
   prompt,
+  model: modelOverride,
   trace,
   traceStep,
 }: {
   system: string;
   prompt: JsonValue;
+  model?: string;
   trace?: ServerTrace;
   traceStep?: string;
 }) {
-  const model = getModel();
+  const model = modelOverride || getModel();
   const step = traceStep || "openrouter:request";
   const messages = [
     { role: "system" as const, content: system },
@@ -404,6 +407,7 @@ function extractStructuredJdQuick(job: JobJd): StructuredJd {
   return {
     companyName: job.companyName,
     jobTitle: job.jobTitle,
+    salaryRange: job.structuredJd?.salaryRange,
     responsibilities: extractBulletLikeSections(job.jdText, 6),
     skillRequirements: extractBulletLikeSections(job.jdText, 8),
     benefits: [],
@@ -657,7 +661,7 @@ async function extractStructuredJd(job: JobJd) {
     { structuredJd?: StructuredJd } & Partial<StructuredJd>
   >({
     system:
-      "你是 JobLoop 的中文 JD 结构化提取助手。你只做信息抽取，不做评价，不编造缺失信息。必须先确认当前输入只对应 1 份 JD，再从该 JD 中准确抽取公司名称和招聘岗位名称。公司名称不能误填为招聘人姓名、活跃时间、城市、薪资或福利标签；岗位名称不能误填为整段职责、日期、招聘文案或“职位详情”。若 JD 未提供某字段，则返回空字符串或空数组。只返回合法 JSON。",
+      "你是 JobLoop 的中文 JD 结构化提取助手。你只做信息抽取，不做评价，不编造缺失信息。必须先确认当前输入只对应 1 份 JD，再从该 JD 中准确抽取公司名称和招聘岗位名称。公司名称不能误填为招聘人姓名、活跃时间、城市、薪资或福利标签；岗位名称不能误填为整段职责、日期、招聘文案或\u201C职位详情\u201D。薪资范围（salaryRange）请从 JD 文本中提取，常见格式如\u201C10-15K\u201D、\u201C15K-25K\u201D等，preExtractedSalary 字段已提供初步识别结果供参考。若 JD 未提供某字段，则返回空字符串或空数组。只返回合法 JSON。",
     prompt: {
       task: "extract_structured_jd",
       outputSchema: {
@@ -680,17 +684,25 @@ async function extractStructuredJd(job: JobJd) {
         jobTitle: job.jobTitle,
         jobUrl: job.jobUrl || "",
         jdText: job.jdText,
+        preExtractedSalary: job.structuredJd?.salaryRange || "",
       },
     },
   });
 
   const nested = data.structuredJd;
   if (nested && typeof nested === "object" && "companyName" in nested) {
-    return nested;
+    return {
+      ...nested,
+      salaryRange: nested.salaryRange || job.structuredJd?.salaryRange,
+    };
   }
 
   if (data && typeof data === "object" && "companyName" in data) {
-    return data as unknown as StructuredJd;
+    const result = data as unknown as StructuredJd;
+    return {
+      ...result,
+      salaryRange: result.salaryRange || job.structuredJd?.salaryRange,
+    };
   }
 
   return extractStructuredJdQuick(job);
@@ -699,114 +711,137 @@ async function extractStructuredJd(job: JobJd) {
 async function buildCompanyResearch(job: JobJd, trace?: ServerTrace) {
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey) throw new Error("Missing OPENROUTER_API_KEY");
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
   trace?.log("batch-analysis:job:company-research:start", {
     companyName: job.companyName,
     jobId: job.id,
-    timeoutMs: REQUEST_TIMEOUT_MS,
+    timeoutMs: COMPANY_RESEARCH_TIMEOUT_MS,
   });
 
-  try {
-    const response = await fetch(`${OPENROUTER_BASE_URL}/chat/completions`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-        ...getDefaultHeaders(),
-      },
-      signal: controller.signal,
-      body: JSON.stringify({
-        model: getModel(),
-        temperature: 0.1,
-        messages: [
-          {
-            role: "system",
-            content:
-              '你是 JobLoop 的中文公司研究助手。请围绕目标公司进行联网检索，输出从属行业、公司规模、主营业务、主要产品、公司风评五类信息。只输出保守、可公开支持的摘要；不夸大、不猜测未经证实的融资、估值、排名或内部情况。若某项无法确认，则明确写"待补充"。只返回合法 JSON。',
-          },
-          {
-            role: "user",
-            content: JSON.stringify(
-              {
-                task: "company_research",
-                companyName: job.companyName,
-                jobTitle: job.jobTitle,
-                jobUrl: job.jobUrl || "",
-                jdText: job.jdText,
-                outputSchema: {
-                  industry: "",
-                  companyScale: "",
-                  mainBusiness: "",
-                  keyProducts: [""],
-                  reputation: "",
-                  summary: "",
-                },
-              },
-              null,
-              2,
-            ),
-          },
-        ],
-        max_tokens: 2048,
-        tools: [{ type: "openrouter:web_search" }],
-      }),
-    });
-    clearTimeout(timeout);
+  let lastError: unknown;
 
-    if (!response.ok) {
-      trace?.fail(
-        "batch-analysis:job:company-research:http-error",
-        new Error(`Company research failed with status ${response.status}`),
-        { jobId: job.id, status: response.status },
-      );
+  for (let attempt = 0; attempt <= OPENROUTER_MAX_RETRIES; attempt += 1) {
+    const controller = new AbortController();
+    const timeout = setTimeout(
+      () => controller.abort(),
+      COMPANY_RESEARCH_TIMEOUT_MS,
+    );
+
+    try {
+      const response = await fetch(`${OPENROUTER_BASE_URL}/chat/completions`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+          ...getDefaultHeaders(),
+        },
+        signal: controller.signal,
+        body: JSON.stringify({
+          model: getModel(),
+          temperature: 0.1,
+          messages: [
+            {
+              role: "system",
+              content:
+                '你是 JobLoop 的中文公司研究助手。请围绕目标公司进行联网检索，输出从属行业、公司规模、主营业务、主要产品、公司风评五类信息。只输出保守、可公开支持的摘要；不夸大、不猜测未经证实的融资、估值、排名或内部情况。若某项无法确认，则明确写"待补充"。只返回合法 JSON。',
+            },
+            {
+              role: "user",
+              content: JSON.stringify(
+                {
+                  task: "company_research",
+                  companyName: job.companyName,
+                  jobTitle: job.jobTitle,
+                  jobUrl: job.jobUrl || "",
+                  jdText: job.jdText,
+                  outputSchema: {
+                    industry: "",
+                    companyScale: "",
+                    mainBusiness: "",
+                    keyProducts: [""],
+                    reputation: "",
+                    summary: "",
+                  },
+                },
+                null,
+                2,
+              ),
+            },
+          ],
+          max_tokens: 2048,
+          tools: [{ type: "openrouter:web_search" }],
+        }),
+      });
+      clearTimeout(timeout);
+
+      if (!response.ok) {
+        throw new Error(
+          `Company research failed with status ${response.status}`,
+        );
+      }
+
+      const completion = (await response.json()) as {
+        choices?: Array<{
+          message?: {
+            annotations?: unknown;
+            content?: unknown;
+          };
+        }>;
+      };
+
+      const message = completion.choices?.[0]?.message;
+      const rawText = extractTextContent(message?.content);
+
+      if (!rawText) {
+        return {
+          industry: "待补充",
+          companyScale: "待补充",
+          mainBusiness: "待补充",
+          keyProducts: [],
+          reputation: "待补充",
+          summary: "未能完成公司联网检索，建议稍后重试或人工补充。",
+          searchedAt: createTimestamp(),
+          citations: [],
+        } satisfies CompanyResearch;
+      }
+
+      const parsed =
+        parseJsonPayload<Omit<CompanyResearch, "searchedAt">>(rawText);
+      return {
+        industry: parsed.industry || "待补充",
+        companyScale: parsed.companyScale || "待补充",
+        mainBusiness: parsed.mainBusiness || "待补充",
+        keyProducts: parsed.keyProducts || [],
+        reputation: parsed.reputation || "待补充",
+        summary: parsed.summary || "公司补充信息待补充。",
+        searchedAt: createTimestamp(),
+        citations: parseSearchCitations(message || {}),
+      } satisfies CompanyResearch;
+    } catch (error) {
+      clearTimeout(timeout);
+      lastError = error;
+      if (
+        attempt < OPENROUTER_MAX_RETRIES &&
+        shouldRetryOpenRouterError(error)
+      ) {
+        await sleep(600 * (attempt + 1));
+        continue;
+      }
+      trace?.fail("batch-analysis:job:company-research", error, {
+        jobId: job.id,
+      });
       return buildFallbackCompanyResearch();
     }
-
-    const completion = (await response.json()) as {
-      choices?: Array<{
-        message?: {
-          annotations?: unknown;
-          content?: unknown;
-        };
-      }>;
-    };
-
-    const message = completion.choices?.[0]?.message;
-    const rawText = extractTextContent(message?.content);
-
-    if (!rawText) {
-      return {
-        industry: "待补充",
-        companyScale: "待补充",
-        mainBusiness: "待补充",
-        keyProducts: [],
-        reputation: "待补充",
-        summary: "未能完成公司联网检索，建议稍后重试或人工补充。",
-        searchedAt: createTimestamp(),
-        citations: [],
-      } satisfies CompanyResearch;
-    }
-
-    const parsed =
-      parseJsonPayload<Omit<CompanyResearch, "searchedAt">>(rawText);
-    return {
-      industry: parsed.industry || "待补充",
-      companyScale: parsed.companyScale || "待补充",
-      mainBusiness: parsed.mainBusiness || "待补充",
-      keyProducts: parsed.keyProducts || [],
-      reputation: parsed.reputation || "待补充",
-      summary: parsed.summary || "公司补充信息待补充。",
-      searchedAt: createTimestamp(),
-      citations: parseSearchCitations(message || {}),
-    } satisfies CompanyResearch;
-  } catch (error) {
-    clearTimeout(timeout);
-    trace?.fail("batch-analysis:job:company-research", error, {
-      jobId: job.id,
-    });
-    return buildFallbackCompanyResearch();
   }
+
+  trace?.fail(
+    "batch-analysis:job:company-research",
+    lastError instanceof Error
+      ? lastError
+      : new Error("Company research failed after retries"),
+    { jobId: job.id },
+  );
+  return buildFallbackCompanyResearch();
 }
 
 export async function extractStructuredJdOnly(
@@ -931,7 +966,7 @@ export async function scoreJobWithAi(
       }>;
     }>({
       system:
-        "你是 JobLoop 的岗位评分与投递决策助手。请基于结构化 JD、公司补充信息和简历版本，对单个岗位打分并输出求职决策摘要。评分体系固定：行业匹配度25%、公司实力20%、岗位匹配度30%、薪资竞争力15%、成长性10%。每个维度先单独给0-100分，再按权重计算总分。若 JD 缺少薪资信息，薪资竞争力按中性分50处理，并在 summary 或 mainRisk 中说明“薪资信息缺失”。只返回合法 JSON。",
+        "你是 JobLoop 的岗位评分与投递决策助手。请基于结构化 JD、公司补充信息和简历版本，对单个岗位打分并输出求职决策摘要。评分体系固定：行业匹配度25%、公司实力20%、岗位匹配度30%、薪资竞争力15%、成长性10%。每个维度先单独给0-100分，再按权重计算总分。薪资竞争力评分规则：若 JD 提供了薪资范围（如\u201C10-15K\u201D），请以区间最低值（如10K）为基准，结合岗位级别、地区和行业水平评估竞争力；若 JD 缺少薪资信息，按中性分50处理并在 summary 中说明。只返回合法 JSON。",
       prompt: {
         task: "single_job_score",
         scoringWeights: {
@@ -1186,6 +1221,7 @@ export async function generateJobDetailWithAi(
     interviewPrep: string[];
   }>({
     system: DETAIL_SYSTEM,
+    model: getDetailModel(),
     prompt: {
       task: "job_detail_analysis",
       scoringWeights: {

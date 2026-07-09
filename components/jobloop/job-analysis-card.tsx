@@ -27,6 +27,22 @@ const statusLabel = {
   failed: "分析失败",
 } as const;
 
+function formatSalaryMidpoint(salaryRange?: string): string {
+  if (!salaryRange) return "";
+  const match = salaryRange.match(/(\d+(?:\.\d)?)\s*-\s*(\d+(?:\.\d)?)\s*K/i);
+  if (match) {
+    const low = Number.parseFloat(match[1]);
+    const high = Number.parseFloat(match[2]);
+    const mid = Math.round((low + high) / 2);
+    return `\u00B7${mid}K`;
+  }
+  const single = salaryRange.match(/(\d+(?:\.\d)?)\s*K/i);
+  if (single) {
+    return `\u00B7${single[1]}K`;
+  }
+  return "";
+}
+
 export function JobAnalysisCard({
   job,
   result,
@@ -45,6 +61,9 @@ export function JobAnalysisCard({
           </p>
           <h3 className="mt-2 text-xl font-semibold text-white">
             {job.jobTitle}
+            <span className="text-cyan-200/80">
+              {formatSalaryMidpoint(job.structuredJd?.salaryRange)}
+            </span>
           </h3>
           <p className="mt-1 text-sm text-white/54">
             推荐简历：{resumeVersion?.name ?? "未找到基础版本"}
