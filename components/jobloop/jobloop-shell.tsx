@@ -28,7 +28,7 @@ export function JobLoopShell({
             <div className="hidden h-16 w-px bg-white/24 sm:block" />
             <div>
               <p className="text-2xl font-semibold tracking-normal text-white sm:text-3xl">
-                投递前决策工作台
+                投递决策工作台
               </p>
               <p className="mt-1 text-sm uppercase tracking-normal text-white/56">
                 Resume matching and decision workspace
