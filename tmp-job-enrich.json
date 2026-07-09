@@ -1,0 +1,13 @@
+﻿{
+  "job": {
+    "id": "job-test-001",
+    "batchId": "batch-test-001",
+    "companyName": "滴普科技",
+    "jobTitle": "初级AI解决方案架构师",
+    "jobUrl": "",
+    "jdText": "滴普科技正在招聘 初级AI解决方案架构师。岗位职责：负责AI解决方案售前支持、客户需求分析、方案设计、跨团队协作推进项目落地。任职要求：具备AI、LLM、RAG、售前、解决方案相关经验，能接受出差新加坡。",
+    "companyInfo": "",
+    "createdAt": "2026-07-09T10:00:00.000Z",
+    "updatedAt": "2026-07-09T10:00:00.000Z"
+  }
+}

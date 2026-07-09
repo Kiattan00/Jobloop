@@ -20,10 +20,11 @@ const decisionTone = {
 
 const statusLabel = {
   draft: "待开始",
-  enriching: "补充信息中",
-  scoring: "评分中",
+  extracting_jd: "提取 JD 中...",
+  enriching: "补充公司信息中...",
+  scoring: "评分中...",
   ready: "已完成",
-  failed: "处理失败",
+  failed: "分析失败",
 } as const;
 
 export function JobAnalysisCard({

@@ -1,0 +1,67 @@
+﻿{
+  "job": {
+    "id": "job-test-001",
+    "batchId": "batch-test-001",
+    "companyName": "滴普科技",
+    "jobTitle": "初级AI解决方案架构师",
+    "jobUrl": "",
+    "jdText": "滴普科技正在招聘 初级AI解决方案架构师。岗位职责：负责AI解决方案售前支持、客户需求分析、方案设计、跨团队协作推进项目落地。任职要求：具备AI、LLM、RAG、售前、解决方案相关经验，能接受出差新加坡。",
+    "companyInfo": "滴普科技成立于2018年，总部位于北京市海淀区，专注于企业级大模型人工智能解决方案，拥有多项专利和行业标准参与权。",
+    "createdAt": "2026-07-09T10:00:00.000Z",
+    "updatedAt": "2026-07-09T10:11:28.590Z",
+    "structuredJd": {
+      "companyName": "滴普科技",
+      "jobTitle": "初级AI解决方案架构师",
+      "salaryRange": "",
+      "responsibilities": [
+        "负责AI解决方案售前支持、客户需求分析、方案设计、跨团队协作推进项目落地"
+      ],
+      "skillRequirements": ["具备AI、LLM、RAG、售前、解决方案相关经验"],
+      "experienceRequirement": "",
+      "educationRequirement": "",
+      "location": "",
+      "benefits": ["能接受出差新加坡"],
+      "sourceUrl": "",
+      "rawSummary": ""
+    },
+    "companyResearch": {
+      "industry": "企业级大模型人工智能应用解决方案",
+      "companyScale": "中型企业",
+      "mainBusiness": "提供企业级大模型人工智能应用解决方案，涵盖消费零售、制造、医疗、交通等领域。",
+      "keyProducts": [
+        "DeepexiOS平台",
+        "FastData Foil数据融合平台",
+        "FastAGI企业级人工智能解决方案",
+        "DeepSense工业智能体"
+      ],
+      "reputation": "滴普科技被认定为国家级专精特新“小巨人”企业，曾入选多项行业榜单，整体风评较好。",
+      "summary": "滴普科技成立于2018年，总部位于北京市海淀区，专注于企业级大模型人工智能解决方案，拥有多项专利和行业标准参与权。",
+      "searchedAt": "2026-07-09T10:11:28.590Z",
+      "citations": [
+        {
+          "title": "滴普科技- AI创造无限可能",
+          "url": "https://www.deepexi.com/"
+        },
+        {
+          "title": "滴普科技股份有限公司",
+          "url": "https://www.investhk.gov.hk/zh-hk/our-clients/deepexi-technology-co-ltd"
+        },
+        {
+          "title": "滴普科技股份有限公司",
+          "url": "https://baike.baidu.com/item/%E6%BB%B4%E6%99%AE%E7%A7%91%E6%8A%80%E8%82%A1%E4%BB%BD%E6%9C%89%E9%99%90%E5%85%AC%E5%8F%B8/65798280"
+        },
+        {
+          "title": "香港交易及結算所有限公司、香港聯合交易所有限公司（「聯交所」）及香港中央結 算有限公司（「香港結算」）對本公告的內容概不負責，對其準確性或完整性亦不發 表任何聲明，並明確表示概不就因本公告全部或任何部分內容而產生或因依賴該 等內容而引致的任何損失承擔任何責任。",
+          "url": "https://www1.hkexnews.hk/listedco/listconews/sehk/2025/1027/2025102701435_c.pdf"
+        },
+        {
+          "title": "滴普科技公司简介及介绍",
+          "url": "https://www.moomoo.com/hans/stock/01384-HK/company"
+        }
+      ]
+    },
+    "processingStatus": "scoring"
+  },
+  "model": "openai/gpt-4o-mini",
+  "traceId": "job-enrich-route-mrdcjy2b-m3rihm"
+}

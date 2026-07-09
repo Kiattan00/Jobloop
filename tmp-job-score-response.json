@@ -1,0 +1,33 @@
+﻿{
+  "result": {
+    "id": "analysis-mrdclae7-7sa856",
+    "jobId": "job-test-001",
+    "recommendedResumeVersionId": "resume-v1",
+    "matchScore": 0,
+    "scoreBreakdown": {
+      "industryMatch": 0,
+      "companyStrength": 0,
+      "roleMatch": 0,
+      "salaryCompetitiveness": 0,
+      "growthPotential": 0
+    },
+    "applyDecision": "cautious",
+    "needsTailoring": false,
+    "mainRisk": "AI 评分失败: Connection error.",
+    "summary": "AI 评分暂时不可用，请稍后重试或手动评估。JD 结构化信息和公司补充信息已就绪，可参考现有数据进行判断。",
+    "status": "ready",
+    "createdAt": "2026-07-09T10:12:22.111Z"
+  },
+  "aiOutput": {
+    "id": "ai-batch-mrdclae7-d48uxa",
+    "type": "batch_analysis",
+    "provider": "openrouter",
+    "model": "openai/gpt-4o-mini",
+    "resumeVersionIds": ["resume-v1"],
+    "jobIds": ["job-test-001"],
+    "inputSummary": "批量分析 1 个 JD，批次 batch-test-001，已包含结构化 JD 与公司补充信息",
+    "outputRefId": "analysis-mrdclae7-7sa856",
+    "createdAt": "2026-07-09T10:12:22.111Z"
+  },
+  "traceId": "job-score-route-mrdcl6mj-920ac0"
+}

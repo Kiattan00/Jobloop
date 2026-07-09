@@ -8,6 +8,7 @@ import { GlassPanel } from "./glass-panel";
 
 const statusLabel = {
   draft: "待开始",
+  extracting_jd: "提取结构化JD",
   enriching: "补充信息中",
   scoring: "评分中",
   ready: "已完成",

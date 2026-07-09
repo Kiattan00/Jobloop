@@ -1,6 +1,6 @@
 import "server-only";
 
-import OpenAI from "openai";
+import https from "node:https";
 import { createEntityId, createTimestamp } from "@/lib/jobloop/generators";
 import type { ServerTrace } from "@/lib/jobloop/server-trace";
 import type {
@@ -16,9 +16,15 @@ import type {
 } from "./types";
 
 const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
-const DEFAULT_MODEL = "deepseek/deepseek-v4-flash";
+const DEFAULT_MODEL = "openai/gpt-4o-mini";
 const DEPLOYMENT_FAST_MODE = process.env.AI_FAST_MODE === "true";
 const COMPANY_RESEARCH_TIMEOUT_MS = 15_000;
+const REQUEST_TIMEOUT_MS = 120_000;
+const OPENROUTER_MAX_RETRIES = 2;
+const IPV4_ONLY_AGENT = new https.Agent({
+  family: 4,
+  keepAlive: false,
+});
 const DETAIL_SYSTEM = `
 你是 JobLoop 的高级求职顾问，擅长从招聘视角拆解岗位本质。你的任务是为候选人生成一份**深度、可执行**的单岗位分析报告。
 
@@ -65,17 +71,6 @@ function getDefaultHeaders() {
   };
 }
 
-function getClient() {
-  const apiKey = process.env.OPENROUTER_API_KEY;
-  if (!apiKey) throw new Error("Missing OPENROUTER_API_KEY");
-
-  return new OpenAI({
-    baseURL: OPENROUTER_BASE_URL,
-    apiKey,
-    defaultHeaders: getDefaultHeaders(),
-  });
-}
-
 function extractTextContent(content: unknown) {
   if (typeof content === "string") return content;
   if (Array.isArray(content)) {
@@ -118,6 +113,103 @@ function parseJsonPayload<T>(payload: string): T {
       "模型返回内容无法解析为 JSON，前 200 字符: " + cleaned.slice(0, 200),
     );
   }
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function shouldRetryOpenRouterError(error: unknown) {
+  if (!(error instanceof Error)) return false;
+
+  return [
+    "Client network socket disconnected before secure TLS connection was established",
+    "ECONNRESET",
+    "ETIMEDOUT",
+    "fetch failed",
+    "socket hang up",
+  ].some((keyword) => error.message.includes(keyword));
+}
+
+async function postOpenRouterChatCompletion(body: Record<string, unknown>) {
+  const apiKey = process.env.OPENROUTER_API_KEY;
+  if (!apiKey) throw new Error("Missing OPENROUTER_API_KEY");
+
+  const url = new URL(`${OPENROUTER_BASE_URL}/chat/completions`);
+  const payload = JSON.stringify(body);
+  let lastError: unknown;
+
+  for (let attempt = 0; attempt <= OPENROUTER_MAX_RETRIES; attempt += 1) {
+    try {
+      return await new Promise<string>((resolve, reject) => {
+        const request = https.request(
+          url,
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${apiKey}`,
+              "Content-Length": Buffer.byteLength(payload),
+              "Content-Type": "application/json",
+              ...getDefaultHeaders(),
+            },
+            agent: IPV4_ONLY_AGENT,
+            timeout: REQUEST_TIMEOUT_MS,
+          },
+          (response) => {
+            const chunks: Buffer[] = [];
+
+            response.on("data", (chunk) => {
+              chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+            });
+
+            response.on("end", () => {
+              const responseText = Buffer.concat(chunks).toString("utf8");
+
+              if ((response.statusCode || 500) >= 400) {
+                reject(
+                  new Error(
+                    `OpenRouter request failed with status ${response.statusCode}: ${responseText.slice(0, 200)}`,
+                  ),
+                );
+                return;
+              }
+
+              resolve(responseText);
+            });
+          },
+        );
+
+        request.on("timeout", () => {
+          request.destroy(
+            new Error(
+              `OpenRouter request timed out after ${REQUEST_TIMEOUT_MS}ms`,
+            ),
+          );
+        });
+
+        request.on("error", (error) => {
+          reject(error);
+        });
+
+        request.write(payload);
+        request.end();
+      });
+    } catch (error) {
+      lastError = error;
+      if (
+        attempt < OPENROUTER_MAX_RETRIES &&
+        shouldRetryOpenRouterError(error)
+      ) {
+        await sleep(400 * (attempt + 1));
+        continue;
+      }
+      throw error;
+    }
+  }
+
+  throw lastError instanceof Error
+    ? lastError
+    : new Error("OpenRouter request failed");
 }
 
 function formatStructuredReport(
@@ -191,7 +283,6 @@ async function requestJson<T>({
   trace?: ServerTrace;
   traceStep?: string;
 }) {
-  const client = getClient();
   const model = getModel();
   const step = traceStep || "openrouter:request";
   const messages = [
@@ -204,18 +295,32 @@ async function requestJson<T>({
     promptLength: messages[1]?.content.length ?? 0,
     systemLength: system.length,
   });
-  const completion = await client.chat.completions.create(
-    {
+
+  let completion: {
+    choices?: Array<{
+      message?: {
+        content?: unknown;
+      };
+    }>;
+  };
+
+  try {
+    const responseText = await postOpenRouterChatCompletion({
       model,
       temperature: 0.2,
       max_tokens: 4096,
       messages,
       response_format: { type: "json_object" },
-    },
-    { timeout: 60_000 },
-  );
+    });
+    completion = JSON.parse(responseText) as typeof completion;
+  } catch (error) {
+    trace?.fail(`${step}:request-failed`, error, {
+      model,
+    });
+    throw error;
+  }
 
-  const rawText = extractTextContent(completion.choices[0]?.message?.content);
+  const rawText = extractTextContent(completion.choices?.[0]?.message?.content);
   if (!rawText) {
     trace?.fail(`${step}:empty`, new Error("Model returned empty content"), {
       model,
@@ -595,102 +700,127 @@ async function buildCompanyResearch(job: JobJd, trace?: ServerTrace) {
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey) throw new Error("Missing OPENROUTER_API_KEY");
   const controller = new AbortController();
-  const timeout = setTimeout(
-    () => controller.abort(),
-    COMPANY_RESEARCH_TIMEOUT_MS,
-  );
+  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   trace?.log("batch-analysis:job:company-research:start", {
     companyName: job.companyName,
     jobId: job.id,
-    timeoutMs: COMPANY_RESEARCH_TIMEOUT_MS,
+    timeoutMs: REQUEST_TIMEOUT_MS,
   });
 
-  const response = await fetch(`${OPENROUTER_BASE_URL}/chat/completions`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-      ...getDefaultHeaders(),
-    },
-    signal: controller.signal,
-    body: JSON.stringify({
-      model: getModel(),
-      temperature: 0.1,
-      messages: [
-        {
-          role: "system",
-          content:
-            "你是 JobLoop 的中文公司研究助手。请围绕目标公司进行联网检索，输出从属行业、公司规模、主营业务、主要产品、公司风评五类信息。只输出保守、可公开支持的摘要；不夸大、不猜测未经证实的融资、估值、排名或内部情况。若某项无法确认，则明确写“待补充”。只返回合法 JSON。",
-        },
-        {
-          role: "user",
-          content: JSON.stringify(
-            {
-              task: "company_research",
-              companyName: job.companyName,
-              jobTitle: job.jobTitle,
-              jobUrl: job.jobUrl || "",
-              jdText: job.jdText,
-              outputSchema: {
-                industry: "",
-                companyScale: "",
-                mainBusiness: "",
-                keyProducts: [""],
-                reputation: "",
-                summary: "",
+  try {
+    const response = await fetch(`${OPENROUTER_BASE_URL}/chat/completions`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+        ...getDefaultHeaders(),
+      },
+      signal: controller.signal,
+      body: JSON.stringify({
+        model: getModel(),
+        temperature: 0.1,
+        messages: [
+          {
+            role: "system",
+            content:
+              '你是 JobLoop 的中文公司研究助手。请围绕目标公司进行联网检索，输出从属行业、公司规模、主营业务、主要产品、公司风评五类信息。只输出保守、可公开支持的摘要；不夸大、不猜测未经证实的融资、估值、排名或内部情况。若某项无法确认，则明确写"待补充"。只返回合法 JSON。',
+          },
+          {
+            role: "user",
+            content: JSON.stringify(
+              {
+                task: "company_research",
+                companyName: job.companyName,
+                jobTitle: job.jobTitle,
+                jobUrl: job.jobUrl || "",
+                jdText: job.jdText,
+                outputSchema: {
+                  industry: "",
+                  companyScale: "",
+                  mainBusiness: "",
+                  keyProducts: [""],
+                  reputation: "",
+                  summary: "",
+                },
               },
-            },
-            null,
-            2,
-          ),
-        },
-      ],
-      max_tokens: 2048,
-      tools: [{ type: "openrouter:web_search" }],
-    }),
-  });
-  clearTimeout(timeout);
+              null,
+              2,
+            ),
+          },
+        ],
+        max_tokens: 2048,
+        tools: [{ type: "openrouter:web_search" }],
+      }),
+    });
+    clearTimeout(timeout);
 
-  if (!response.ok) {
-    throw new Error(`Company research failed with status ${response.status}`);
-  }
+    if (!response.ok) {
+      trace?.fail(
+        "batch-analysis:job:company-research:http-error",
+        new Error(`Company research failed with status ${response.status}`),
+        { jobId: job.id, status: response.status },
+      );
+      return buildFallbackCompanyResearch();
+    }
 
-  const completion = (await response.json()) as {
-    choices?: Array<{
-      message?: {
-        annotations?: unknown;
-        content?: unknown;
-      };
-    }>;
-  };
+    const completion = (await response.json()) as {
+      choices?: Array<{
+        message?: {
+          annotations?: unknown;
+          content?: unknown;
+        };
+      }>;
+    };
 
-  const message = completion.choices?.[0]?.message;
-  const rawText = extractTextContent(message?.content);
+    const message = completion.choices?.[0]?.message;
+    const rawText = extractTextContent(message?.content);
 
-  if (!rawText) {
+    if (!rawText) {
+      return {
+        industry: "待补充",
+        companyScale: "待补充",
+        mainBusiness: "待补充",
+        keyProducts: [],
+        reputation: "待补充",
+        summary: "未能完成公司联网检索，建议稍后重试或人工补充。",
+        searchedAt: createTimestamp(),
+        citations: [],
+      } satisfies CompanyResearch;
+    }
+
+    const parsed =
+      parseJsonPayload<Omit<CompanyResearch, "searchedAt">>(rawText);
     return {
-      industry: "待补充",
-      companyScale: "待补充",
-      mainBusiness: "待补充",
-      keyProducts: [],
-      reputation: "待补充",
-      summary: "未能完成公司联网检索，建议稍后重试或人工补充。",
+      industry: parsed.industry || "待补充",
+      companyScale: parsed.companyScale || "待补充",
+      mainBusiness: parsed.mainBusiness || "待补充",
+      keyProducts: parsed.keyProducts || [],
+      reputation: parsed.reputation || "待补充",
+      summary: parsed.summary || "公司补充信息待补充。",
       searchedAt: createTimestamp(),
-      citations: [],
+      citations: parseSearchCitations(message || {}),
     } satisfies CompanyResearch;
+  } catch (error) {
+    clearTimeout(timeout);
+    trace?.fail("batch-analysis:job:company-research", error, {
+      jobId: job.id,
+    });
+    return buildFallbackCompanyResearch();
   }
+}
 
-  const parsed = parseJsonPayload<Omit<CompanyResearch, "searchedAt">>(rawText);
-  return {
-    industry: parsed.industry || "待补充",
-    companyScale: parsed.companyScale || "待补充",
-    mainBusiness: parsed.mainBusiness || "待补充",
-    keyProducts: parsed.keyProducts || [],
-    reputation: parsed.reputation || "待补充",
-    summary: parsed.summary || "公司补充信息待补充。",
-    searchedAt: createTimestamp(),
-    citations: parseSearchCitations(message || {}),
-  } satisfies CompanyResearch;
+export async function extractStructuredJdOnly(
+  job: JobJd,
+): Promise<StructuredJd> {
+  try {
+    return await extractStructuredJd(job);
+  } catch {
+    return extractStructuredJdQuick(job);
+  }
+}
+
+export async function enrichCompanyOnly(job: JobJd): Promise<CompanyResearch> {
+  return buildCompanyResearch(job);
 }
 
 export async function enrichJobWithAi(job: JobJd, trace?: ServerTrace) {

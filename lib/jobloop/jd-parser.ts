@@ -1,9 +1,14 @@
-﻿import type { JdBatch, JobJd } from "./types";
+import type { JdBatch, JobJd } from "./types";
 
 const now = () => new Date().toISOString();
 
 const slug = () =>
   `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+
+const MAX_BATCH_JOBS = 5;
+const MIN_BLOCK_LENGTH = 40;
+const START_THRESHOLD = 5;
+const FOLLOWUP_SCAN_LIMIT = 8;
 
 export type ParsedJdDraft = {
   id: string;
@@ -14,74 +19,156 @@ export type ParsedJdDraft = {
   companyInfo?: string;
 };
 
+export type ParsedJdBatchResult = {
+  drafts: ParsedJdDraft[];
+  detectedCount: number;
+  hasMoreThanLimit: boolean;
+  mayBeIncomplete: boolean;
+  warnings: string[];
+};
+
 const ROLE_HINTS = [
   "产品",
   "产品经理",
   "产品助理",
-  "技术支持",
   "售前",
-  "交付",
-  "实施",
-  "运营",
-  "增长",
-  "数据",
+  "架构师",
   "工程师",
-  "开发",
-  "测试",
   "顾问",
-  "专员",
-  "主管",
-  "总监",
-  "项目经理",
+  "运营",
   "解决方案",
-  "客户成功",
+  "咨询",
+  "项目经理",
+  "实施",
+  "交付",
+  "数据",
+  "算法",
   "AI",
+  "LLM",
   "Agent",
   "RAG",
+  "product",
+  "assistant",
+  "manager",
+  "consultant",
+  "engineer",
+  "architect",
+  "presales",
+  "solution",
 ];
 
-const RECRUITER_HINTS = [
-  "招聘经理",
-  "人事经理",
-  "HR",
-  "招聘",
-  "猎头",
+const ROLE_SUFFIXES = [
+  "经理",
+  "助理",
   "顾问",
-  "刚刚活跃",
-  "刚刚在线",
-  "今日活跃",
-  "昨天活跃",
+  "工程师",
+  "架构师",
+  "专家",
+  "实习生",
+  "负责人",
+  "主管",
+  "专员",
+  "总监",
+  "售前",
+  "运营",
+  "分析师",
+  "开发",
+  "测试",
+  "assistant",
+  "manager",
+  "consultant",
+  "engineer",
+  "architect",
 ];
 
-const NOISE_HINTS = [
+const BODY_SECTION_HINTS = [
+  "岗位职责",
+  "工作职责",
+  "职位详情",
+  "岗位要求",
+  "任职要求",
+  "任职资格",
+  "岗位描述",
+  "职位描述",
+  "加分项",
+];
+
+const BODY_SENTENCE_HINTS = [
+  "负责",
+  "熟悉",
+  "具备",
+  "参与",
+  "推进",
+  "协同",
+  "完成",
+  "支持",
+  "优先",
+];
+
+const PLATFORM_NOISE_HINTS = [
+  "BOSS直聘",
+  "扫码查看职位详情",
+  "找工作，上BOSS直聘直接谈",
+  "立即沟通",
   "继续沟通",
-  "微信扫码分享",
   "分享",
   "举报",
+  "微信扫码",
   "感兴趣",
   "取消感兴趣",
-  "加分项",
-  "职位详情",
-  "职位描述",
-  "岗位职责",
-  "岗位要求",
-  "任职要求",
-  "福利待遇",
 ];
 
-const JD_BODY_HINTS = [
-  "岗位职责",
-  "岗位要求",
-  "任职要求",
-  "职位描述",
-  "职位详情",
-  "职责",
-  "要求",
-  "工作内容",
-  "工作职责",
+const META_HINTS = [
+  "本科",
+  "大专",
+  "硕士",
+  "博士",
+  "应届生",
+  "全职",
+  "兼职",
+  "实习",
+  "13薪",
+  "14薪",
+  "五险一金",
+];
+
+const CITY_HINTS = [
+  "北京",
+  "上海",
+  "深圳",
+  "广州",
+  "杭州",
+  "成都",
+  "武汉",
+  "苏州",
+  "南京",
+  "西安",
+  "长沙",
+  "厦门",
+  "珠海",
+  "东莞",
+  "天津",
+  "重庆",
+  "合肥",
+  "青岛",
+  "佛山",
+  "宁波",
+  "无锡",
+  "郑州",
+  "福州",
+  "南昌",
+  "昆明",
+  "济南",
+  "香港",
+  "新加坡",
 ];
 
 const explicitBlockSeparator = /\n\s*(?:---+|___+|###)\s*\n|\n{3,}/;
+
+type CandidateBlock = {
+  lines: string[];
+  startIndexes: number[];
+};
 
 const normalizeText = (text: string) =>
   text
@@ -91,6 +178,9 @@ const normalizeText = (text: string) =>
     .trim();
 
 const cleanLine = (line: string) => line.trim().replace(/\s+/g, " ");
+
+const normalizeForMatch = (text: string) =>
+  cleanLine(text).toLowerCase().replace(/\s+/g, "");
 
 const findUrl = (text: string) =>
   normalizeText(text)
@@ -124,20 +214,7 @@ function isDateLine(line: string) {
   );
 }
 
-function isMetaLine(line: string) {
-  const text = cleanLine(line);
-  if (!text) {
-    return true;
-  }
-
-  return (
-    /^(深圳|广州|北京|上海|杭州|成都|武汉|苏州|东莞|珠海)/.test(text) ||
-    /\d{1,2}-\d{1,2}K/i.test(text) ||
-    /(本科|大专|硕士|博士|经验|应届|五险一金|双休|年终奖)/.test(text)
-  );
-}
-
-function isNoiseLine(line: string) {
+function isPlatformNoiseLine(line: string) {
   const text = cleanLine(line);
   if (!text) {
     return true;
@@ -147,17 +224,61 @@ function isNoiseLine(line: string) {
     return true;
   }
 
-  return NOISE_HINTS.some((hint) => text.includes(hint));
+  return PLATFORM_NOISE_HINTS.some((hint) => text.includes(hint));
 }
 
-function looksLikeRecruiterCompanyLine(line: string) {
+function isLikelyMetaLine(line: string) {
   const text = cleanLine(line);
-  if (!text.includes("·")) {
+  if (!text) {
     return false;
   }
 
-  const [, tail = ""] = text.split("·", 2);
-  return RECRUITER_HINTS.some((hint) => tail.includes(hint));
+  const parts = text
+    .split(/[/|｜·]/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+
+  const hasSalary =
+    /\d{1,2}(?:\.\d)?\s*-\s*\d{1,2}(?:\.\d)?\s*K/i.test(text) ||
+    /\d{1,2}(?:\.\d)?\s*K(?:以上|以下)?/i.test(text);
+  const hasExperience =
+    /\d+\s*-\s*\d+\s*年/.test(text) ||
+    /\d+\s*年(?:以上|以下)?/.test(text) ||
+    text.includes("应届生");
+  const hasEducation = /(本科|大专|硕士|博士|学历不限)/.test(text);
+  const hasEmployment = /(全职|兼职|实习)/.test(text);
+  const hasCity = CITY_HINTS.some((city) => text.includes(city));
+
+  if (
+    parts.length >= 2 &&
+    [hasSalary, hasExperience, hasEducation, hasCity].filter(Boolean).length >=
+      2
+  ) {
+    return true;
+  }
+
+  if (hasSalary || hasExperience || hasEducation || hasEmployment) {
+    return text.length <= 40;
+  }
+
+  return false;
+}
+
+function looksLikeBodySection(line: string) {
+  const text = cleanLine(line);
+  return BODY_SECTION_HINTS.some((hint) => text.includes(hint));
+}
+
+function looksLikeBodySentence(line: string) {
+  const text = cleanLine(line);
+  if (!text) {
+    return false;
+  }
+
+  return (
+    BODY_SENTENCE_HINTS.some((hint) => text.includes(hint)) ||
+    /[；。:：]/.test(text)
+  );
 }
 
 function looksLikeCompanyStart(line: string) {
@@ -166,38 +287,174 @@ function looksLikeCompanyStart(line: string) {
     return false;
   }
 
-  return text.includes("正在招聘") || looksLikeRecruiterCompanyLine(text);
+  return (
+    text.includes("正在招聘") ||
+    text.includes("招聘中") ||
+    /^公司[:：]/.test(text)
+  );
 }
 
 function looksLikeJobTitle(line: string) {
   const text = cleanLine(line);
-  if (!text || isNoiseLine(text) || isMetaLine(text)) {
+  const normalized = normalizeForMatch(text);
+  if (!text || isPlatformNoiseLine(text) || isLikelyMetaLine(text)) {
     return false;
   }
 
-  if (text.length > 40) {
+  if (text.length < 4 || text.length > 40) {
     return false;
+  }
+
+  if (looksLikeBodySection(text) || looksLikeBodySentence(text)) {
+    return false;
+  }
+
+  if (/^[A-Za-z0-9\-_/]+$/.test(text) && text.length < 6) {
+    return false;
+  }
+
+  const hasRoleHint =
+    ROLE_HINTS.some((hint) => normalized.includes(normalizeForMatch(hint))) ||
+    ROLE_SUFFIXES.some((suffix) =>
+      normalized.endsWith(normalizeForMatch(suffix)),
+    );
+
+  const looksLikeTitleShape =
+    !/[，,；;。！？!?]/.test(text) &&
+    /[\u4e00-\u9fa5A-Za-z]/.test(text) &&
+    !text.startsWith("岗位") &&
+    !text.startsWith("职责") &&
+    !text.startsWith("要求");
+
+  return hasRoleHint && looksLikeTitleShape;
+}
+
+function hasBodySignal(block: string) {
+  const normalized = normalizeText(block);
+  return (
+    BODY_SECTION_HINTS.some((hint) => normalized.includes(hint)) ||
+    BODY_SENTENCE_HINTS.some((hint) => normalized.includes(hint))
+  );
+}
+
+function countBodySections(lines: string[]) {
+  return lines.filter((line) => looksLikeBodySection(line)).length;
+}
+
+function scoreStart(lines: string[], index: number) {
+  const current = lines[index];
+  const prev = lines[index - 1] || "";
+  const next = lines[index + 1] || "";
+  const nextTwo = lines.slice(index + 1, index + 4);
+  const nextEight = lines.slice(index + 1, index + 1 + FOLLOWUP_SCAN_LIMIT);
+  let score = 0;
+
+  if (isPlatformNoiseLine(current)) {
+    return -4;
+  }
+
+  if (looksLikeCompanyStart(current)) {
+    score += 5;
+  }
+
+  if (looksLikeJobTitle(current)) {
+    score += 3;
+  }
+
+  if (looksLikeCompanyStart(prev) && looksLikeJobTitle(current)) {
+    score -= 4;
+  }
+
+  if (isLikelyMetaLine(next)) {
+    score += 3;
   }
 
   if (
-    JD_BODY_HINTS.some((hint) => text.includes(hint)) ||
-    RECRUITER_HINTS.some((hint) => text.includes(hint))
+    nextTwo.some((line) => looksLikeJobTitle(line)) &&
+    nextTwo.some((line) => isLikelyMetaLine(line))
   ) {
-    return false;
+    score += 2;
   }
 
-  return ROLE_HINTS.some((hint) => text.includes(hint));
+  if (nextEight.some((line) => looksLikeBodySection(line))) {
+    score += 2;
+  }
+
+  if (looksLikeBodySentence(current)) {
+    score -= 3;
+  }
+
+  if (looksLikeBodySection(current)) {
+    score -= 2;
+  }
+
+  return score;
 }
 
-function hasJdSignal(block: string) {
-  const normalized = normalizeText(block);
-  return JD_BODY_HINTS.some((hint) => normalized.includes(hint));
+function splitSourceBlock(source: string) {
+  const lines = source
+    .split("\n")
+    .map((line) => cleanLine(line))
+    .filter(Boolean);
+
+  if (lines.length === 0) {
+    return [] as CandidateBlock[];
+  }
+
+  const startIndexes = new Set<number>();
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    if (isPlatformNoiseLine(line)) {
+      continue;
+    }
+
+    if (index === 0) {
+      startIndexes.add(index);
+      continue;
+    }
+
+    const startScore = scoreStart(lines, index);
+    if (startScore >= START_THRESHOLD) {
+      startIndexes.add(index);
+    }
+  }
+
+  const orderedStarts = [...startIndexes].sort((left, right) => left - right);
+  const blocks: CandidateBlock[] = [];
+
+  for (let i = 0; i < orderedStarts.length; i += 1) {
+    const start = orderedStarts[i];
+    const end = orderedStarts[i + 1] ?? lines.length;
+    const slice = lines
+      .slice(start, end)
+      .filter((line) => !isPlatformNoiseLine(line))
+      .filter(Boolean);
+
+    if (slice.length > 0) {
+      blocks.push({
+        lines: slice,
+        startIndexes: [start],
+      });
+    }
+  }
+
+  if (blocks.length === 0) {
+    return [
+      {
+        lines: lines.filter((line) => !isPlatformNoiseLine(line)),
+        startIndexes: [0],
+      },
+    ];
+  }
+
+  return blocks;
 }
 
 function splitBlocks(text: string) {
   const normalized = normalizeText(text);
   if (!normalized) {
-    return [];
+    return [] as CandidateBlock[];
   }
 
   const explicitBlocks = normalized
@@ -207,48 +464,29 @@ function splitBlocks(text: string) {
 
   const sourceBlocks =
     explicitBlocks.length > 1 ? explicitBlocks : [normalized];
-  const result: string[] = [];
+  const candidates = sourceBlocks.flatMap((source) => splitSourceBlock(source));
+  const merged: CandidateBlock[] = [];
 
-  for (const source of sourceBlocks) {
-    const lines = source
-      .split("\n")
-      .map((line) => line.trim())
-      .filter(Boolean);
-
-    let current: string[] = [];
-
-    for (const line of lines) {
-      if (isNoiseLine(line)) {
-        continue;
-      }
-
-      if (current.length > 0 && looksLikeCompanyStart(line)) {
-        result.push(current.join("\n").trim());
-        current = [line];
-        continue;
-      }
-
-      current.push(line);
-    }
-
-    if (current.length > 0) {
-      result.push(current.join("\n").trim());
-    }
-  }
-
-  const merged: string[] = [];
-  for (const block of result) {
-    if (!block) {
+  for (const candidate of candidates) {
+    const textBlock = candidate.lines.join("\n").trim();
+    if (!textBlock) {
       continue;
     }
 
-    if (!hasJdSignal(block) && merged.length > 0) {
-      merged[merged.length - 1] =
-        `${merged[merged.length - 1]}\n${block}`.trim();
+    if (
+      merged.length > 0 &&
+      !hasBodySignal(textBlock) &&
+      !candidate.lines.some((line) => looksLikeCompanyStart(line))
+    ) {
+      const prev = merged[merged.length - 1];
+      merged[merged.length - 1] = {
+        lines: [...prev.lines, ...candidate.lines],
+        startIndexes: [...prev.startIndexes, ...candidate.startIndexes],
+      };
       continue;
     }
 
-    merged.push(block);
+    merged.push(candidate);
   }
 
   return merged;
@@ -269,42 +507,31 @@ function extractCompanyName(lines: string[], block: string, index: number) {
     if (text.includes("正在招聘")) {
       return text.replace(/正在招聘.*$/u, "").trim();
     }
-
-    if (looksLikeRecruiterCompanyLine(text)) {
-      return text.split("·", 2)[0].trim();
-    }
   }
 
   const fallback = lines.find(
-    (line) => !isNoiseLine(line) && !isMetaLine(line),
+    (line) =>
+      !isPlatformNoiseLine(line) &&
+      !isLikelyMetaLine(line) &&
+      !looksLikeBodySection(line) &&
+      !looksLikeJobTitle(line),
   );
   return fallback || `公司${index + 1}`;
 }
 
 function extractJobTitle(lines: string[], block: string, index: number) {
   const labeled = findValue(block, ["岗位", "职位", "招聘岗位", "Job Title"]);
-  if (labeled) {
-    const cleaned = cleanLine(labeled);
-    const isBodyHint = JD_BODY_HINTS.some((hint) => cleaned.includes(hint));
-    const isRecruiterHint = RECRUITER_HINTS.some((hint) =>
-      cleaned.includes(hint),
-    );
-    if (!isBodyHint && !isRecruiterHint && cleaned.length >= 2) {
-      return labeled;
+  if (labeled && looksLikeJobTitle(labeled)) {
+    return cleanLine(labeled);
+  }
+
+  for (let i = 0; i < lines.length; i += 1) {
+    if (looksLikeJobTitle(lines[i])) {
+      return cleanLine(lines[i]);
     }
   }
 
-  const startIndex = lines.findIndex((line) => looksLikeCompanyStart(line));
-
-  for (let i = startIndex >= 0 ? startIndex + 1 : 0; i < lines.length; i += 1) {
-    const line = cleanLine(lines[i]);
-    if (looksLikeJobTitle(line)) {
-      return line;
-    }
-  }
-
-  const fallback = lines.find((line) => looksLikeJobTitle(line));
-  return fallback || `岗位${index + 1}`;
+  return `岗位${index + 1}`;
 }
 
 function isDateOnlyBlock(block: string) {
@@ -315,38 +542,94 @@ function isDateOnlyBlock(block: string) {
   return lines.length === 1 && isDateLine(lines[0]);
 }
 
-const MIN_BLOCK_LENGTH = 30;
+function isValidCandidateBlock(block: CandidateBlock) {
+  const text = block.lines.join("\n").trim();
+  if (!text || text.length < MIN_BLOCK_LENGTH || isDateOnlyBlock(text)) {
+    return false;
+  }
+
+  const hasJobTitle = block.lines.some((line) => looksLikeJobTitle(line));
+  const hasBody = hasBodySignal(text);
+  return hasJobTitle && hasBody;
+}
+
+function dedupeDrafts(drafts: ParsedJdDraft[]) {
+  const seen = new Set<string>();
+  return drafts.filter((draft) => {
+    const key = `${draft.companyName.trim().toLowerCase()}|${draft.jobTitle.trim().toLowerCase()}`;
+    if (seen.has(key)) {
+      return false;
+    }
+    seen.add(key);
+    return true;
+  });
+}
+
+function countPotentialStartSignals(text: string) {
+  const lines = normalizeText(text)
+    .split("\n")
+    .map((line) => cleanLine(line))
+    .filter(Boolean);
+
+  return lines.reduce((count, _line, index) => {
+    return scoreStart(lines, index) >= START_THRESHOLD ? count + 1 : count;
+  }, 0);
+}
 
 export function parseJdBatchText(text: string): ParsedJdDraft[] {
-  const drafts = splitBlocks(text)
-    .filter((block) => !isDateOnlyBlock(block))
-    .filter((block) => block.length >= MIN_BLOCK_LENGTH)
-    .map((block, index) => {
-      const lines = normalizeText(block)
-        .split("\n")
-        .map((line) => line.trim())
-        .filter(Boolean);
+  return analyzeJdBatchText(text).drafts;
+}
 
+export function analyzeJdBatchText(text: string): ParsedJdBatchResult {
+  const candidateBlocks = splitBlocks(text).filter(isValidCandidateBlock);
+  const drafts = dedupeDrafts(
+    candidateBlocks.map((candidate, index) => {
+      const block = candidate.lines.join("\n").trim();
       const companyInfo =
         findValue(block, ["公司补充信息", "公司信息", "Company info"]) || "";
 
       return {
         id: `draft-${slug()}`,
-        companyName: extractCompanyName(lines, block, index),
-        jobTitle: extractJobTitle(lines, block, index),
+        companyName: extractCompanyName(candidate.lines, block, index),
+        jobTitle: extractJobTitle(candidate.lines, block, index),
         jobUrl: findUrl(block),
         jdText: block,
         companyInfo,
       };
-    });
+    }),
+  );
 
-  const seen = new Set<string>();
-  return drafts.filter((draft) => {
-    const key = draft.companyName + "|" + draft.jobTitle;
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
+  const detectedCount = drafts.length;
+  const hasMoreThanLimit = detectedCount > MAX_BATCH_JOBS;
+  const limitedDrafts = drafts.slice(0, MAX_BATCH_JOBS);
+  const potentialStartSignals = countPotentialStartSignals(text);
+  const multipleBodySections = countBodySections(
+    normalizeText(text)
+      .split("\n")
+      .map((line) => cleanLine(line))
+      .filter(Boolean),
+  );
+  const mayBeIncomplete =
+    limitedDrafts.length === 1 &&
+    (potentialStartSignals >= 2 || multipleBodySections >= 2);
+
+  const warnings: string[] = [];
+  if (hasMoreThanLimit) {
+    warnings.push("单次最多处理 5 条岗位，已仅保留前 5 条。");
+  }
+  if (mayBeIncomplete) {
+    warnings.push(
+      "当前只识别出 1 条岗位，但文本里可能还存在多个 JD，建议检查拆分结果。",
+    );
+  }
+
+  return {
+    drafts: limitedDrafts,
+    detectedCount,
+    hasMoreThanLimit,
+    mayBeIncomplete,
+    warnings,
+  };
 }
 
 export function createJdBatch(title = "岗位分析") {

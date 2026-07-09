@@ -363,19 +363,24 @@
 - COMPANY_RESEARCH_TIMEOUT_MS 从 8s 提高到 15s
 - server-ai.ts 的 requestJson 补了 max_tokens: 4096 + timeout: 60_000（之前缺失）
 
-### 超时问题（未解决）
+### 超时问题（已修复）
 
-- 切换 V4 Flash + 60s 超时后，岗位分析仍然超时失败
-- 前端 AbortController 设 90s，后端 requestJson 设 60s，但 client.chat.completions.create 的 { timeout: 60_000 } 参数可能未被 OpenAI SDK 正确识别
-- 可能原因：
-  1. OpenAI SDK 的 create() 第二个参数 { timeout } 仅在特定版本支持，当前版本可能不生效
-  2. OpenRouter 代理层延迟高，60s 仍不够
-  3. 网络环境导致请求卡住
-- 建议后续排查：
-  1. 确认 OpenAI SDK 版本及 timeout 参数是否生效
-  2. 在 getClient() 中设置全局 timeout 而非 per-request
-  3. 考虑使用 AbortController 在服务端也加超时兜底
-  4. 检查 OpenRouter API 可用性及延迟
+- 根因A：OpenAI SDK v6.45.0 默认 `maxRetries: 2`，超时后自动重试 2 次，60s × 3 + 退避 ≈ 180s+，远超前端 fetch 的 90s 超时
+- 根因B：`{ timeout }` 参数作为 `create()` 第二参数实际上是生效的（SDK 内部用 `setTimeout(abort)` + `controller.abort()` 实现），但重试导致总耗时被放大
+- 修复：
+  - [lib/jobloop/server-ai-jobs.ts](/C:/Users/admin/Documents/JobLoop/lib/jobloop/server-ai-jobs.ts)：
+    - `getClient()` 新增 `timeout: REQUEST_TIMEOUT_MS` + `maxRetries: 0`，关闭自动重试
+    - 新增 `REQUEST_TIMEOUT_MS = 60_000` 常量
+    - `requestJson` 中 `{ timeout: 60_000 }` 改为 `{ timeout: REQUEST_TIMEOUT_MS }`
+  - [lib/jobloop/server-ai.ts](/C:/Users/admin/Documents/JobLoop/lib/jobloop/server-ai.ts)：
+    - 同上同步修改 `getClient()`、`REQUEST_TIMEOUT_MS` 常量、`requestJson` 超时
+
+### 模型切换 & 超时调整（第九轮）
+
+- 模型从 `deepseek/deepseek-v4-flash` 切换到 `openai/gpt-4o-mini`
+- 超时从 60s 提高到 120s（`REQUEST_TIMEOUT_MS = 120_000`）
+- 修改范围：[lib/jobloop/server-ai-jobs.ts](/C:/Users/admin/Documents/JobLoop/lib/jobloop/server-ai-jobs.ts) 和 [lib/jobloop/server-ai.ts](/C:/Users/admin/Documents/JobLoop/lib/jobloop/server-ai.ts)
+- `npm run typecheck` 通过
 
 ### 当前待验证项汇总
 
@@ -388,4 +393,134 @@
 | Unexpected end of JSON input | 已修复 | parseJsonPayload 提取 JSON 对象 + scoreJobWithAi try/catch 兜底 |
 | PDF 提取不分段 | 已修复，待重启验证 | Y 坐标分行 + splitBulletLines 分点检测 |
 | 重复卡片 | 已修复，待重启验证 | MIN_BLOCK_LENGTH 过滤 + 按 companyName/jobTitle 去重 |
-| 岗位分析超时 | **未解决** | V4 Flash + 60s 超时仍失败，需排查 SDK timeout 参数是否生效 |
+| 岗位分析超时 | **已修复** | `maxRetries: 0` 关闭自动重试 + 超时 120s，模型切换 gpt-4o-mini |
+
+## 2026-07-09 修复补充（第十轮）
+
+### 模型切换 & 超时调整（续）
+
+- `.env.local` 同步更新：`OPENROUTER_MODEL=openai/gpt-4o-mini`（之前仅修改了代码 DEFAULT_MODEL，但 env 覆盖了代码默认值，导致实际仍用 V4 Flash）
+- `buildCompanyResearch` 超时从 `COMPANY_RESEARCH_TIMEOUT_MS`（15s）改为 `REQUEST_TIMEOUT_MS`（120s）
+- `buildCompanyResearch` 整体包裹 try/catch，失败时返回 `buildFallbackCompanyResearch()` 降级数据，不再向上抛异常
+
+### 新增独立 enrich 函数
+
+- [lib/jobloop/server-ai-jobs.ts](/C:/Users/admin/Documents/JobLoop/lib/jobloop/server-ai-jobs.ts) 新增两个导出函数：
+  - `extractStructuredJdOnly(job)`：调用 `extractStructuredJd`，失败时 fallback 到 `extractStructuredJdQuick`
+  - `enrichCompanyOnly(job)`：调用 `buildCompanyResearch`，内部已有 try/catch 降级
+- 原有 `enrichJobWithAi` 保留未动，作为备用
+
+### job-enrich route 拆分
+
+- [app/api/ai/job-enrich/route.ts](/C:/Users/admin/Documents/JobLoop/app/api/ai/job-enrich/route.ts) 改为分步调用：
+  1. `extractStructuredJdOnly` → 保存到 `job.structuredJd`
+  2. `enrichCompanyOnly` → 保存到 `job.companyResearch`
+  3. 任何一步失败只标记对应字段为降级数据，不整体失败
+- `maxDuration` 从 60 提高到 120
+
+### 前端渐进式状态更新
+
+- [app/analyses/page.tsx](/C:/Users/admin/Documents/JobLoop/app/analyses/page.tsx)：
+  - enrich/score 的 AbortController 超时从 90s 提高到 150s
+  - 新增渐进式状态：enrich 前 "提取 JD 中..." → enrich 后 "评分中..." → 完成后 "已完成"
+  - 失败时显示 "分析失败"，通过 `Promise.allSettled` 不阻塞其他卡片
+- [lib/jobloop/types.ts](/C:/Users/admin/Documents/JobLoop/lib/jobloop/types.ts)：`JobProcessingStatus` 新增 `"extracting_jd"`
+- [components/jobloop/job-analysis-card.tsx](/C:/Users/admin/Documents/JobLoop/components/jobloop/job-analysis-card.tsx)：状态标签更新
+  - `extracting_jd: "提取 JD 中..."`、`enriching: "补充公司信息中..."`、`scoring: "评分中..."`、`failed: "分析失败"`
+- [components/jobloop/current-analysis-list.tsx](/C:/Users/admin/Documents/JobLoop/components/jobloop/current-analysis-list.tsx)：同步新增 `extracting_jd: "提取结构化JD"`
+
+### 去重优化
+
+- [lib/jobloop/jd-parser.ts](/C:/Users/admin/Documents/JobLoop/lib/jobloop/jd-parser.ts)：去重 key 改为 `trim().toLowerCase()`，消除空格和大小写差异
+
+### 当前待验证项汇总
+
+| 问题 | 状态 | 说明 |
+|---|---|---|
+| 日期行被解析为 JD | 代码已修复，待重启验证 | isNoiseLine + isDateOnlyBlock + MIN_BLOCK_LENGTH 三重过滤 |
+| 岗位名识别为"职责" | 代码已修复，待重启验证 | findValue 收紧 + extractJobTitle 二次验证 |
+| 402 credits 不足 | 已修复 | max_tokens: 4096 限制 |
+| 公司信息联网搜索 | 已修复 | buildCompanyResearch 补 max_tokens: 2048 + try/catch 降级 |
+| Unexpected end of JSON input | 已修复 | parseJsonPayload 提取 JSON 对象 + scoreJobWithAi try/catch 兜底 |
+| PDF 提取不分段 | 已修复，待重启验证 | Y 坐标分行 + splitBulletLines 分点检测 |
+| 岗位分析超时 | **已修复** | `maxRetries: 0` 关闭自动重试 + 超时 150s，模型切换 gpt-4o-mini |
+| 重复卡片 | **未解决** | 单个 JD 仍解析出两个相同卡片，去重 `.trim().toLowerCase()` 后依然存在 |
+| 分析用时过长 | **未解决** | 卡片处于"评分中"状态 2-3 分钟以上仍未完成，需排查 API 调用延迟或阻塞问题 |
+## 2026-07-09 修复补充（第十一轮）
+
+### 单个 JD 出现两张相同卡片的根因
+
+- 根因不在 parser 主流程，而在分析结果持久化。
+- [app/analyses/page.tsx](/C:/Users/admin/Documents/JobLoop/app/analyses/page.tsx) 会先写入一条 placeholder result，用于显示 `extracting_jd` / `scoring` 状态。
+- `/api/ai/job-score` 返回后，前端又会写入一条新的最终 result。
+- 原来的 [lib/jobloop/storage.ts](/C:/Users/admin/Documents/JobLoop/lib/jobloop/storage.ts) 里，`saveBatchAnalysis` 是按 `result.id` 合并，不是按 `jobId` 合并。
+- 这会导致同一个 `jobId` 同时保留两条记录：
+- 一条是一直停在 `scoring` 的 placeholder。
+- 一条是后写入的 `ready` 或 fallback `ready` 结果。
+- 这和用户现场看到的“一张失败/已完成，另一张一直评分中”完全一致。
+
+### 已修复内容
+
+- [lib/jobloop/storage.ts](/C:/Users/admin/Documents/JobLoop/lib/jobloop/storage.ts)
+- 新增 `dedupeAnalysisResults(results)`，按 `jobId` 去重。
+- 去重策略：优先保留 `ready` / `failed` 等终态结果；同优先级时再按 `createdAt` 保留更新的一条。
+- `normalizeState` 现在会在读取本地 `localStorage` 时自动去重，可顺带清理已有脏数据。
+- `saveBatchAnalysis` 改为按 `jobId` 合并，不再因为新旧 `result.id` 不同而留下重复卡片。
+
+### 当前判断
+
+- 这次“两个一模一样标题卡片”的主因已经明确，不是单纯“3007 页面没更新”。
+- 前面的 parser 去重修复仍然有价值，但不足以解释这次的现象。
+- 这次更核心的是 `analysisResults` 的写回去重逻辑错误。
+## 2026-07-09 修复补充（第十二轮）
+
+### 本轮目标
+- 深挖并修复 `/api/ai/job-score` 的 `AI 评分失败: Connection error / fetch failed` 问题。
+- 目标不是继续拉长超时，而是确认到底是模型慢、接口超时，还是服务端建连实现本身不稳定。
+
+### 本轮定位结论
+- 当前问题主因不是“链路太长导致纯超时”。
+- 同一份测试数据下：
+  - `/api/ai/job-enrich` 可在约 10 秒内成功返回。
+  - `/api/ai/job-score` 旧实现会在约 5 秒内快速失败，并进入 fallback。
+- 进一步对比发现：
+  - PowerShell 直连 OpenRouter 的评分请求可以成功返回。
+  - 独立 Node 脚本直连 OpenRouter 的评分请求也可以成功返回。
+  - 失败集中发生在 Next.js 路由运行时里的评分请求实现。
+- 旧错误链路演进：
+  - OpenAI SDK：`Connection error`
+  - 改成 route 内 `fetch`：`fetch failed`
+  - 改成原生 `https.request` 后暴露出更明确的底层错误：`Client network socket disconnected before secure TLS connection was established`
+- 这说明瓶颈更偏向服务端运行时建连稳定性，而不是 OpenRouter 账户、模型、token、prompt 或纯响应时长。
+
+### 已完成修复
+- 文件：
+  - [lib/jobloop/server-ai-jobs.ts](/C:/Users/admin/Documents/JobLoop/lib/jobloop/server-ai-jobs.ts)
+- 修复内容：
+  - 移除该文件里普通 JSON 请求对 OpenAI SDK 的依赖，改为自建 `postOpenRouterChatCompletion(...)`。
+  - 使用 Node 原生 `https.request` 直连 OpenRouter，避开 Next 路由内不稳定的 SDK / fetch 建连路径。
+  - 新增 `IPV4_ONLY_AGENT = new https.Agent({ family: 4, keepAlive: false })`，强制评分链路走 IPv4，规避 TLS 建连前断开的网络问题。
+  - 保留原有 trace 打点与 fallback 逻辑，出错时仍可降级，但现在 trace 信息更可定位。
+
+### 本地实测结果
+- 最新通过验证端口：
+  - `http://localhost:3013`
+- 关键接口回归：
+  - `/api/ai/job-enrich`
+    - 仍可正常返回。
+  - `/api/ai/job-score`
+    - 已从 fallback 失败恢复为正常评分返回。
+    - 基于 `tmp-job-score.json` 的本地直测结果：
+      - 用时约 `8.7s`
+      - `matchScore = 79`
+      - `mainRisk = 薪资信息缺失`
+      - 不再出现 `Connection error` / `fetch failed`
+- 构建验证：
+  - `npm run build` 通过
+
+### 当前判断
+- “评分中卡很久 + 最后失败”这个问题，本轮已经定位并修到服务端评分请求实现层。
+- 如果你后续在前端页面上仍看到旧的 fallback 卡片或重复卡片，优先怀疑：
+  - 打开的不是最新端口实例；
+  - 浏览器里残留了历史 `localStorage` 分析结果；
+  - 页面仍停留在旧进程（如 3006/3007）的结果视图。

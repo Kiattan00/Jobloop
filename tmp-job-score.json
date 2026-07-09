@@ -1,0 +1,58 @@
+﻿{
+  "batchId": "batch-test-001",
+  "job": {
+    "id": "job-test-001",
+    "batchId": "batch-test-001",
+    "companyName": "滴普科技",
+    "jobTitle": "初级AI解决方案架构师",
+    "jobUrl": "",
+    "jdText": "滴普科技正在招聘 初级AI解决方案架构师。岗位职责：负责AI解决方案售前支持、客户需求分析、方案设计、跨团队协作推进项目落地。任职要求：具备AI、LLM、RAG、售前、解决方案相关经验，能接受出差新加坡。",
+    "companyInfo": "滴普科技成立于2018年，总部位于北京市海淀区，专注于企业级大模型人工智能解决方案，拥有多项专利和行业标准参与权。",
+    "structuredJd": {
+      "companyName": "滴普科技",
+      "jobTitle": "初级AI解决方案架构师",
+      "salaryRange": "",
+      "responsibilities": [
+        "负责AI解决方案售前支持、客户需求分析、方案设计、跨团队协作推进项目落地"
+      ],
+      "skillRequirements": ["具备AI、LLM、RAG、售前、解决方案相关经验"],
+      "experienceRequirement": "",
+      "educationRequirement": "",
+      "location": "",
+      "benefits": ["能接受出差新加坡"],
+      "sourceUrl": "",
+      "rawSummary": ""
+    },
+    "companyResearch": {
+      "industry": "企业级大模型人工智能应用解决方案",
+      "companyScale": "中型企业",
+      "mainBusiness": "提供企业级大模型人工智能应用解决方案，涵盖消费零售、制造、医疗、交通等领域。",
+      "keyProducts": [
+        "DeepexiOS平台",
+        "FastData Foil数据融合平台",
+        "FastAGI企业级人工智能解决方案",
+        "DeepSense工业智能体"
+      ],
+      "reputation": "滴普科技被认定为国家级专精特新“小巨人”企业，曾入选多项行业榜单，整体风评较好。",
+      "summary": "滴普科技成立于2018年，总部位于北京市海淀区，专注于企业级大模型人工智能解决方案，拥有多项专利和行业标准参与权。",
+      "searchedAt": "2026-07-09T10:11:28.590Z",
+      "citations": []
+    },
+    "processingStatus": "scoring",
+    "createdAt": "2026-07-09T10:00:00.000Z",
+    "updatedAt": "2026-07-09T10:11:28.590Z"
+  },
+  "resumeVersions": [
+    {
+      "id": "resume-v1",
+      "sourceResumeId": "source-1",
+      "name": "陈鸿杰个人简历-售前工程师0610AI",
+      "targetDirection": "AI售前工程师",
+      "rewriteFocus": "突出AI、售前、解决方案和交付经验",
+      "content": "具备AI解决方案售前支持、需求分析、方案设计、交付协同经验，熟悉LLM、RAG与企业级AI落地场景。",
+      "status": "saved",
+      "createdAt": "2026-07-09T10:00:00.000Z",
+      "updatedAt": "2026-07-09T10:00:00.000Z"
+    }
+  ]
+}

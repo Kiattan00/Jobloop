@@ -1,6 +1,6 @@
-﻿import "server-only";
+import "server-only";
 
-import OpenAI from "openai";
+import https from "node:https";
 import { createEntityId, createTimestamp } from "@/lib/jobloop/generators";
 import type { ServerTrace } from "@/lib/jobloop/server-trace";
 import type {
@@ -17,9 +17,15 @@ import type {
 } from "./types";
 
 const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
-const DEFAULT_MODEL = "deepseek/deepseek-v4-flash";
+const DEFAULT_MODEL = "openai/gpt-4o-mini";
 const DEPLOYMENT_FAST_MODE = process.env.AI_FAST_MODE === "true";
 const RESUME_SEARCH_TIMEOUT_MS = 8_000;
+const REQUEST_TIMEOUT_MS = 120_000;
+const OPENROUTER_MAX_RETRIES = 2;
+const IPV4_ONLY_AGENT = new https.Agent({
+  family: 4,
+  keepAlive: false,
+});
 const DETAIL_SYSTEM = `
 你是 JobLoop 的高级求职顾问，擅长从招聘视角拆解岗位本质。你的任务是为候选人生成一份**深度、可执行**的单岗位分析报告。
 
@@ -127,20 +133,6 @@ function shouldSkipOptionalAiPasses() {
   return DEPLOYMENT_FAST_MODE;
 }
 
-function getClient() {
-  const apiKey = process.env.OPENROUTER_API_KEY;
-
-  if (!apiKey) {
-    throw new Error("Missing OPENROUTER_API_KEY");
-  }
-
-  return new OpenAI({
-    baseURL: OPENROUTER_BASE_URL,
-    apiKey,
-    defaultHeaders: getDefaultHeaders(),
-  });
-}
-
 function extractTextContent(content: unknown) {
   if (typeof content === "string") {
     return content;
@@ -176,6 +168,110 @@ function parseJsonPayload<T>(payload: string): T {
     .replace(/\s*```$/i, "");
 
   return JSON.parse(cleaned) as T;
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function shouldRetryOpenRouterError(error: unknown) {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+
+  return [
+    "Client network socket disconnected before secure TLS connection was established",
+    "ECONNRESET",
+    "ETIMEDOUT",
+    "fetch failed",
+    "socket hang up",
+  ].some((keyword) => error.message.includes(keyword));
+}
+
+async function postOpenRouterChatCompletion(body: Record<string, unknown>) {
+  const apiKey = process.env.OPENROUTER_API_KEY;
+
+  if (!apiKey) {
+    throw new Error("Missing OPENROUTER_API_KEY");
+  }
+
+  const url = new URL(`${OPENROUTER_BASE_URL}/chat/completions`);
+  const payload = JSON.stringify(body);
+  let lastError: unknown;
+
+  for (let attempt = 0; attempt <= OPENROUTER_MAX_RETRIES; attempt += 1) {
+    try {
+      return await new Promise<string>((resolve, reject) => {
+        const request = https.request(
+          url,
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${apiKey}`,
+              "Content-Length": Buffer.byteLength(payload),
+              "Content-Type": "application/json",
+              ...getDefaultHeaders(),
+            },
+            agent: IPV4_ONLY_AGENT,
+            timeout: REQUEST_TIMEOUT_MS,
+          },
+          (response) => {
+            const chunks: Buffer[] = [];
+
+            response.on("data", (chunk) => {
+              chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+            });
+
+            response.on("end", () => {
+              const responseText = Buffer.concat(chunks).toString("utf8");
+
+              if ((response.statusCode || 500) >= 400) {
+                reject(
+                  new Error(
+                    `OpenRouter request failed with status ${response.statusCode}: ${responseText.slice(0, 200)}`,
+                  ),
+                );
+                return;
+              }
+
+              resolve(responseText);
+            });
+          },
+        );
+
+        request.on("timeout", () => {
+          request.destroy(
+            new Error(
+              `OpenRouter request timed out after ${REQUEST_TIMEOUT_MS}ms`,
+            ),
+          );
+        });
+
+        request.on("error", (error) => {
+          reject(error);
+        });
+
+        request.write(payload);
+        request.end();
+      });
+    } catch (error) {
+      lastError = error;
+
+      if (
+        attempt < OPENROUTER_MAX_RETRIES &&
+        shouldRetryOpenRouterError(error)
+      ) {
+        await sleep(400 * (attempt + 1));
+        continue;
+      }
+
+      throw error;
+    }
+  }
+
+  throw lastError instanceof Error
+    ? lastError
+    : new Error("OpenRouter request failed");
 }
 
 function formatStructuredResumeContent(content: unknown): string | null {
@@ -402,7 +498,6 @@ async function requestJson<T>({
   trace?: ServerTrace;
   traceStep?: string;
 }) {
-  const client = getClient();
   const model = getModel();
   const step = traceStep || "openrouter:request";
   const messages = [
@@ -416,18 +511,23 @@ async function requestJson<T>({
     promptLength: messages[messages.length - 1]?.content.length ?? 0,
     systemLength: system.length,
   });
-  const completion = await client.chat.completions.create(
-    {
-      model,
-      temperature: 0.2,
-      max_tokens: 4096,
-      messages,
-      response_format: { type: "json_object" },
-    },
-    { timeout: 60_000 },
-  );
 
-  const rawText = extractTextContent(completion.choices[0]?.message?.content);
+  const responseText = await postOpenRouterChatCompletion({
+    model,
+    temperature: 0.2,
+    max_tokens: 4096,
+    messages,
+    response_format: { type: "json_object" },
+  });
+  const completion = JSON.parse(responseText) as {
+    choices?: Array<{
+      message?: {
+        content?: unknown;
+      };
+    }>;
+  };
+
+  const rawText = extractTextContent(completion.choices?.[0]?.message?.content);
   if (!rawText) {
     trace?.fail(`${step}:empty`, new Error("Model returned empty content"), {
       model,

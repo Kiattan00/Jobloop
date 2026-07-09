@@ -1,70 +1,73 @@
+import { Trash2 } from "lucide-react";
 import type { ParsedJdDraft } from "@/lib/jobloop/jd-parser";
-import { CompanyInfoPanel } from "./company-info-panel";
 import { GlassPanel } from "./glass-panel";
+
+function previewJdText(text: string) {
+  const compact = text.replace(/\s+/g, " ").trim();
+  if (compact.length <= 140) {
+    return compact;
+  }
+
+  return `${compact.slice(0, 140)}...`;
+}
 
 export function ParsedJobList({
   drafts,
-  onChange,
+  warnings,
+  onRemove,
 }: {
   drafts: ParsedJdDraft[];
-  onChange: (drafts: ParsedJdDraft[]) => void;
+  warnings?: string[];
+  onRemove: (id: string) => void;
 }) {
-  const updateDraft = (id: string, patch: Partial<ParsedJdDraft>) => {
-    onChange(
-      drafts.map((draft) => (draft.id === id ? { ...draft, ...patch } : draft)),
-    );
-  };
-
   if (drafts.length === 0) {
     return (
       <GlassPanel intensity="card" className="p-5 text-sm text-white/58">
-        解析后会在这里展示岗位卡片，你可以在生成分析前修正公司、职位和公司补充信息。
+        智能拆分后会先在这里生成待确认岗位卡片。确认无误后，再进入 enrich /
+        score / detail 分析流程。
       </GlassPanel>
     );
   }
 
   return (
     <div className="grid gap-4">
+      {warnings?.length ? (
+        <div className="grid gap-2">
+          {warnings.map((warning) => (
+            <p
+              className="rounded-md border border-amber-200/25 bg-amber-300/10 p-3 text-sm text-amber-50"
+              key={warning}
+            >
+              {warning}
+            </p>
+          ))}
+        </div>
+      ) : null}
+
       {drafts.map((draft, index) => (
         <GlassPanel intensity="card" className="p-5" key={draft.id}>
-          <div className="grid gap-4 lg:grid-cols-[1fr_1fr]">
-            <div>
+          <div className="flex items-start justify-between gap-4">
+            <div className="min-w-0 flex-1">
               <p className="text-xs font-semibold uppercase tracking-normal text-cyan-100/70">
-                Parsed job {index + 1}
+                待确认岗位 {index + 1}
               </p>
-              <input
-                className="mt-3 h-10 w-full rounded-md border border-white/18 bg-black/16 px-3 text-sm font-semibold text-white outline-none focus:border-cyan-200/70"
-                onChange={(event) =>
-                  updateDraft(draft.id, { companyName: event.target.value })
-                }
-                value={draft.companyName}
-              />
-              <input
-                className="mt-3 h-10 w-full rounded-md border border-white/18 bg-black/16 px-3 text-sm text-white outline-none focus:border-cyan-200/70"
-                onChange={(event) =>
-                  updateDraft(draft.id, { jobTitle: event.target.value })
-                }
-                value={draft.jobTitle}
-              />
-              <input
-                className="mt-3 h-10 w-full rounded-md border border-white/18 bg-black/16 px-3 text-sm text-white/78 outline-none placeholder:text-white/35 focus:border-cyan-200/70"
-                onChange={(event) =>
-                  updateDraft(draft.id, { jobUrl: event.target.value })
-                }
-                placeholder="岗位链接，可选"
-                value={draft.jobUrl ?? ""}
-              />
-              <p className="mt-3 line-clamp-4 text-xs leading-5 text-white/48">
-                {draft.jdText}
+              <h3 className="mt-2 text-lg font-semibold text-white">
+                {draft.companyName}
+              </h3>
+              <p className="mt-1 text-sm font-medium text-cyan-50/90">
+                {draft.jobTitle}
+              </p>
+              <p className="mt-3 text-sm leading-6 text-white/62">
+                {previewJdText(draft.jdText)}
               </p>
             </div>
-            <CompanyInfoPanel
-              compact
-              onChange={(value) =>
-                updateDraft(draft.id, { companyInfo: value })
-              }
-              value={draft.companyInfo}
-            />
+            <button
+              className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-white/16 bg-white/8 text-white/72 hover:bg-white/12"
+              onClick={() => onRemove(draft.id)}
+              type="button"
+            >
+              <Trash2 className="size-4" aria-hidden="true" />
+            </button>
           </div>
         </GlassPanel>
       ))}

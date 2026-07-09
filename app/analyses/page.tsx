@@ -9,16 +9,17 @@ import { JobLoopShell } from "@/components/jobloop/jobloop-shell";
 import { EmptyState, PageHeader } from "@/components/jobloop/page-chrome";
 import { createEntityId } from "@/lib/jobloop/generators";
 import {
+  analyzeJdBatchText,
   createJdBatch,
   createJobsFromDrafts,
-  parseJdBatchText,
+  type ParsedJdDraft,
 } from "@/lib/jobloop/jd-parser";
 import { sampleJdBatchInput } from "@/lib/jobloop/seed-data";
 import {
-  getAnalysisDraftInput,
+  getAnalysisDraftInputs,
   getJobLoopState,
   hasPersistedJobLoopState,
-  saveAnalysisDraftInput,
+  saveAnalysisDraftInputs,
   saveBatchAnalysis,
   saveJdBatchWithJobs,
   updateAnalysisResult,
@@ -30,6 +31,12 @@ import type {
   JobJd,
   JobLoopState,
 } from "@/lib/jobloop/types";
+
+const MAX_JD_INPUTS = 5;
+
+function createEmptyInputs() {
+  return Array.from({ length: MAX_JD_INPUTS }, () => "");
+}
 
 function createPendingResult(jobId: string): JobAnalysisResult {
   return {
@@ -48,35 +55,66 @@ function createPendingResult(jobId: string): JobAnalysisResult {
     needsTailoring: false,
     mainRisk: "",
     summary: "系统已识别岗位标题，正在补充公司信息与结构化 JD。",
-    status: "enriching",
+    status: "extracting_jd",
     createdAt: new Date().toISOString(),
   };
 }
 
+function parseSingleJobDrafts(inputs: string[]) {
+  const drafts: ParsedJdDraft[] = [];
+  const warnings: string[] = [];
+
+  inputs.forEach((value, index) => {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return;
+    }
+
+    const result = analyzeJdBatchText(trimmed);
+    if (result.drafts.length === 0) {
+      warnings.push(`岗位 ${index + 1} 未识别出有效 JD，请检查内容。`);
+      return;
+    }
+
+    if (result.detectedCount > 1 || result.hasMoreThanLimit) {
+      warnings.push(
+        `岗位 ${index + 1} 中识别到多个 JD，请确保每个输入框只填写 1 条岗位。`,
+      );
+      return;
+    }
+
+    drafts.push(result.drafts[0]);
+  });
+
+  return { drafts, warnings };
+}
+
 export default function AnalysesPage() {
   const [state, setState] = useState<JobLoopState | null>(null);
-  const [input, setInput] = useState("");
+  const [inputs, setInputs] = useState<string[]>(createEmptyInputs);
   const [currentBatchId, setCurrentBatchId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const current = getJobLoopState();
-    const persistedDraftInput = getAnalysisDraftInput();
+    const persistedDraftInputs = getAnalysisDraftInputs();
     setState(current);
     setCurrentBatchId(current.jdBatches[0]?.id ?? null);
-    setInput(
-      persistedDraftInput ||
-        (!hasPersistedJobLoopState() ? sampleJdBatchInput : ""),
+    setInputs(
+      hasPersistedJobLoopState()
+        ? persistedDraftInputs
+        : [sampleJdBatchInput, "", "", "", ""],
     );
   }, []);
 
   useEffect(() => {
-    saveAnalysisDraftInput(input);
-  }, [input]);
+    saveAnalysisDraftInputs(inputs);
+  }, [inputs]);
 
   const hasResumeVersions = (state?.resumeVersions.length ?? 0) > 0;
-  const liveDrafts = useMemo(() => parseJdBatchText(input), [input]);
+  const filledCount = inputs.filter((value) => value.trim().length > 0).length;
+  const canAnalyze = filledCount > 0 && !loading;
 
   const currentResults = useMemo(() => {
     if (!state || !currentBatchId) {
@@ -88,12 +126,17 @@ export default function AnalysesPage() {
     return state.analysisResults.filter((result) => jobIds.has(result.jobId));
   }, [currentBatchId, state]);
 
-  const parseInput = () => {
-    setError(null);
-  };
-
   const refreshState = () => {
     setState(getJobLoopState());
+  };
+
+  const handleInputChange = (index: number, value: string) => {
+    setInputs((current) =>
+      current.map((item, currentIndex) =>
+        currentIndex === index ? value : item,
+      ),
+    );
+    setError(null);
   };
 
   const handleAnalyze = async () => {
@@ -101,14 +144,20 @@ export default function AnalysesPage() {
       return;
     }
 
-    const parsedDrafts = parseJdBatchText(input);
-    if (parsedDrafts.length === 0) {
-      setError("请先输入至少 1 份可识别的 JD，再开始分析。");
+    const { drafts, warnings } = parseSingleJobDrafts(inputs);
+
+    if (warnings.length > 0) {
+      setError(warnings[0]);
+      return;
+    }
+
+    if (drafts.length === 0) {
+      setError("请至少填写 1 条可识别的岗位 JD。");
       return;
     }
 
     const batch = createJdBatch(`岗位分析 ${state.jdBatches.length + 1}`);
-    const jobs = createJobsFromDrafts(batch.id, parsedDrafts).map((job) => ({
+    const jobs = createJobsFromDrafts(batch.id, drafts).map((job) => ({
       ...job,
       processingStatus: "enriching" as const,
     }));
@@ -122,12 +171,23 @@ export default function AnalysesPage() {
     setLoading(true);
     setError(null);
 
-    const outputs: AiOutput[] = [];
-
     const tasks = jobs.map(async (job, index) => {
       try {
+        updateJob({
+          ...job,
+          processingStatus: "extracting_jd",
+          processingError: undefined,
+          updatedAt: new Date().toISOString(),
+        });
+        updateAnalysisResult({
+          ...placeholderResults[index],
+          summary: "正在提取结构化 JD 并补充公司信息...",
+          status: "extracting_jd",
+        });
+        refreshState();
+
         const enrichController = new AbortController();
-        const enrichTimer = setTimeout(() => enrichController.abort(), 90_000);
+        const enrichTimer = setTimeout(() => enrichController.abort(), 150_000);
         const enrichResponse = await fetch("/api/ai/job-enrich", {
           method: "POST",
           headers: {
@@ -147,7 +207,11 @@ export default function AnalysesPage() {
           throw new Error(enrichData.error || "岗位信息补充失败，请稍后重试。");
         }
 
-        updateJob(enrichData.job);
+        updateJob({
+          ...enrichData.job,
+          processingStatus: "scoring",
+          processingError: undefined,
+        });
         updateAnalysisResult({
           ...placeholderResults[index],
           summary: "岗位信息补充完成，正在计算匹配分与投递建议。",
@@ -156,7 +220,7 @@ export default function AnalysesPage() {
         refreshState();
 
         const scoreController = new AbortController();
-        const scoreTimer = setTimeout(() => scoreController.abort(), 90_000);
+        const scoreTimer = setTimeout(() => scoreController.abort(), 150_000);
         const scoreResponse = await fetch("/api/ai/job-score", {
           method: "POST",
           headers: {
@@ -185,7 +249,6 @@ export default function AnalysesPage() {
           [{ ...scoreData.result, status: "ready" as const }],
           scoreData.aiOutput,
         );
-        outputs.push(scoreData.aiOutput as AiOutput);
         updateJob({
           ...enrichData.job,
           processingStatus: "ready",
@@ -240,12 +303,12 @@ export default function AnalysesPage() {
 
   return (
     <JobLoopShell active="/analyses">
-      <div className="grid min-h-[720px] gap-6">
+      <div className="grid min-h-[720px] gap-5">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <PageHeader
             eyebrow="岗位分析工作台"
             title="岗位分析"
-            subtitle="输入多份 JD 后，系统会先解析岗位标题卡片，再逐个补充公司信息、结构化 JD 和匹配分数。完整报告会在详情页继续加载。"
+            subtitle="使用最多 5 个输入框逐条填写岗位 JD。少于 5 条也可直接分析，系统会自动忽略空白输入框。"
           />
           <Link
             className="inline-flex h-10 items-center gap-2 self-end rounded-md border border-white/24 bg-white/12 px-4 text-sm font-semibold text-white/82 hover:bg-white/18"
@@ -264,20 +327,17 @@ export default function AnalysesPage() {
             title="还没有可用于匹配的基础简历"
           />
         ) : (
-          <div className="grid gap-6 pt-6">
-            <div className="grid gap-6 lg:grid-cols-[420px_minmax(0,1fr)] lg:items-start">
-              <div>
-                <JdBatchInput
-                  canAnalyze={liveDrafts.length > 0 && !loading}
-                  onAnalyze={handleAnalyze}
-                  onChange={setInput}
-                  onParse={parseInput}
-                  parsedCount={liveDrafts.length}
-                  value={input}
-                />
-              </div>
+          <>
+            <div className="grid gap-5 lg:grid-cols-[1.06fr_0.94fr]">
+              <JdBatchInput
+                canAnalyze={canAnalyze}
+                filledCount={filledCount}
+                onAnalyze={handleAnalyze}
+                onChange={handleInputChange}
+                values={inputs}
+              />
 
-              <div className="flex min-h-[520px] flex-col overflow-hidden rounded-lg border border-white/16 bg-white/10 p-5 backdrop-blur-2xl">
+              <div className="flex min-h-[400px] flex-col overflow-hidden rounded-lg border border-white/16 bg-white/10 p-5 backdrop-blur-2xl">
                 <p className="text-xs font-semibold uppercase tracking-normal text-cyan-100/70">
                   当前分析
                 </p>
@@ -310,7 +370,7 @@ export default function AnalysesPage() {
                 {error}
               </p>
             ) : null}
-          </div>
+          </>
         )}
       </div>
     </JobLoopShell>

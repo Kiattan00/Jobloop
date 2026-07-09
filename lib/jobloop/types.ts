@@ -8,6 +8,7 @@ export type ResumeExtractionStatus = "pending" | "success" | "failed";
 
 export type JobProcessingStatus =
   | "draft"
+  | "extracting_jd"
   | "enriching"
   | "scoring"
   | "ready"

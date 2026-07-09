@@ -15,13 +15,58 @@ import type {
 
 const STORAGE_KEY = "jobloop:p0-state";
 const ANALYSIS_DRAFT_INPUT_KEY = "jobloop:analysis-draft-input";
+const ANALYSIS_DRAFT_SLOTS = 5;
 
 const isBrowser = () => typeof window !== "undefined";
+
+const statusPriority = {
+  ready: 5,
+  failed: 4,
+  scoring: 3,
+  enriching: 2,
+  extracting_jd: 1,
+  draft: 0,
+} as const;
+
+function getAnalysisResultPriority(result: JobAnalysisResult) {
+  return statusPriority[result.status || "draft"] ?? 0;
+}
+
+function dedupeAnalysisResults(results: JobAnalysisResult[]) {
+  const byJobId = new Map<string, JobAnalysisResult>();
+
+  for (const result of results) {
+    const existing = byJobId.get(result.jobId);
+    if (!existing) {
+      byJobId.set(result.jobId, result);
+      continue;
+    }
+
+    const existingTime = Date.parse(existing.createdAt || "") || 0;
+    const nextTime = Date.parse(result.createdAt || "") || 0;
+    const existingPriority = getAnalysisResultPriority(existing);
+    const nextPriority = getAnalysisResultPriority(result);
+
+    if (
+      nextPriority > existingPriority ||
+      (nextPriority === existingPriority && nextTime >= existingTime)
+    ) {
+      byJobId.set(result.jobId, result);
+    }
+  }
+
+  return Array.from(byJobId.values()).sort((left, right) => {
+    const leftTime = Date.parse(left.createdAt || "") || 0;
+    const rightTime = Date.parse(right.createdAt || "") || 0;
+    return rightTime - leftTime;
+  });
+}
 
 function normalizeState(state: JobLoopState): JobLoopState {
   return {
     ...state,
     resumeVersions: state.resumeVersions.slice(0, 3),
+    analysisResults: dedupeAnalysisResults(state.analysisResults),
   };
 }
 
@@ -92,6 +137,44 @@ export function saveAnalysisDraftInput(value: string) {
   window.localStorage.setItem(ANALYSIS_DRAFT_INPUT_KEY, value);
 }
 
+export function getAnalysisDraftInputs() {
+  if (!isBrowser()) {
+    return Array.from({ length: ANALYSIS_DRAFT_SLOTS }, () => "");
+  }
+
+  const raw = window.localStorage.getItem(ANALYSIS_DRAFT_INPUT_KEY) || "";
+
+  try {
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) {
+      return Array.from({ length: ANALYSIS_DRAFT_SLOTS }, (_, index) =>
+        typeof parsed[index] === "string" ? parsed[index] : "",
+      );
+    }
+  } catch {
+    // fall through to legacy single-input format
+  }
+
+  return Array.from({ length: ANALYSIS_DRAFT_SLOTS }, (_, index) =>
+    index === 0 ? raw : "",
+  );
+}
+
+export function saveAnalysisDraftInputs(values: string[]) {
+  if (!isBrowser()) {
+    return;
+  }
+
+  const normalized = Array.from({ length: ANALYSIS_DRAFT_SLOTS }, (_, index) =>
+    typeof values[index] === "string" ? values[index] : "",
+  );
+
+  window.localStorage.setItem(
+    ANALYSIS_DRAFT_INPUT_KEY,
+    JSON.stringify(normalized),
+  );
+}
+
 export function upsertSourceResume(sourceResume: SourceResume) {
   const state = getPersistedJobLoopState();
   const rest = state.sourceResumes.filter(
@@ -145,14 +228,14 @@ export function saveBatchAnalysis(
   aiOutput?: AiOutput,
 ) {
   const state = getPersistedJobLoopState();
-  const resultIds = new Set(results.map((result) => result.id));
+  const jobIds = new Set(results.map((result) => result.jobId));
 
   saveJobLoopState({
     ...state,
-    analysisResults: [
+    analysisResults: dedupeAnalysisResults([
       ...results,
-      ...state.analysisResults.filter((result) => !resultIds.has(result.id)),
-    ],
+      ...state.analysisResults.filter((result) => !jobIds.has(result.jobId)),
+    ]),
     aiOutputs: aiOutput ? [aiOutput, ...state.aiOutputs] : state.aiOutputs,
   });
 }
