@@ -80,7 +80,7 @@ export function JobAnalysisDetail({
           </p>
           <h1 className="mt-2 text-3xl font-semibold text-white">
             {job.jobTitle}
-            <span className="text-cyan-200/80">
+            <span className="text-white/54">
               {formatSalaryMidpoint(job.structuredJd?.salaryRange)}
             </span>
           </h1>
