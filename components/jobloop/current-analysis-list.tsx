@@ -6,6 +6,22 @@ import type {
 } from "@/lib/jobloop/types";
 import { GlassPanel } from "./glass-panel";
 
+function formatSalaryMidpoint(salaryRange?: string): string {
+  if (!salaryRange) return "";
+  const match = salaryRange.match(/(\d+(?:\.\d)?)\s*-\s*(\d+(?:\.\d)?)\s*K/i);
+  if (match) {
+    const low = Number.parseFloat(match[1]);
+    const high = Number.parseFloat(match[2]);
+    const mid = Math.round((low + high) / 2);
+    return `\u00B7${mid}K`;
+  }
+  const single = salaryRange.match(/(\d+(?:\.\d)?)\s*K/i);
+  if (single) {
+    return `\u00B7${single[1]}K`;
+  }
+  return "";
+}
+
 const statusLabel = {
   draft: "待开始",
   extracting_jd: "提取结构化JD",
@@ -63,6 +79,9 @@ export function CurrentAnalysisList({
                 </p>
                 <h3 className="mt-1 text-xl font-semibold text-white">
                   {job.companyName}·{job.jobTitle}
+                  <span className="text-cyan-200/80">
+                    {formatSalaryMidpoint(job.structuredJd?.salaryRange)}
+                  </span>
                 </h3>
                 <p className="mt-1 text-sm text-white/56">
                   {result.status === "failed"

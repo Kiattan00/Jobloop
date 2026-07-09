@@ -7,6 +7,22 @@ import type {
 import { CompanyInfoPanel } from "./company-info-panel";
 import { GlassPanel } from "./glass-panel";
 
+function formatSalaryMidpoint(salaryRange?: string): string {
+  if (!salaryRange) return "";
+  const match = salaryRange.match(/(\d+(?:\.\d)?)\s*-\s*(\d+(?:\.\d)?)\s*K/i);
+  if (match) {
+    const low = Number.parseFloat(match[1]);
+    const high = Number.parseFloat(match[2]);
+    const mid = Math.round((low + high) / 2);
+    return `\u00B7${mid}K`;
+  }
+  const single = salaryRange.match(/(\d+(?:\.\d)?)\s*K/i);
+  if (single) {
+    return `\u00B7${single[1]}K`;
+  }
+  return "";
+}
+
 const scoreMeta = [
   { key: "industryMatch", label: "行业匹配度", weight: "25%" },
   { key: "companyStrength", label: "公司实力", weight: "20%" },
@@ -64,6 +80,9 @@ export function JobAnalysisDetail({
           </p>
           <h1 className="mt-2 text-3xl font-semibold text-white">
             {job.jobTitle}
+            <span className="text-cyan-200/80">
+              {formatSalaryMidpoint(job.structuredJd?.salaryRange)}
+            </span>
           </h1>
           <p className="mt-2 max-w-3xl text-sm leading-7 text-white/60">
             {detail.conclusion}
