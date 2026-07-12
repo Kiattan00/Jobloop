@@ -1,13 +1,16 @@
 import "server-only";
 
-import { getDocument } from "pdfjs-dist/legacy/build/pdf.mjs";
-import * as pdfjsWorker from "pdfjs-dist/legacy/build/pdf.worker.mjs";
+import { DOMMatrix, ImageData, Path2D } from "@napi-rs/canvas";
 
-type PdfJsWorkerGlobal = typeof globalThis & {
-  pdfjsWorker?: typeof pdfjsWorker;
+type PdfJsModule = typeof import("pdfjs-dist/legacy/build/pdf.mjs");
+type PdfJsWorkerModule =
+  typeof import("pdfjs-dist/legacy/build/pdf.worker.mjs");
+type PdfJsGlobal = typeof globalThis & {
+  DOMMatrix?: typeof globalThis.DOMMatrix;
+  ImageData?: typeof globalThis.ImageData;
+  Path2D?: typeof globalThis.Path2D;
+  pdfjsWorker?: PdfJsWorkerModule;
 };
-
-(globalThis as PdfJsWorkerGlobal).pdfjsWorker ??= pdfjsWorker;
 
 type PdfTextItem = {
   str: string;
@@ -22,6 +25,31 @@ const PARAGRAPH_GAP_RATIO = 1.8;
 const BULLET_PATTERN = /(?:^|\s)([•●◆◇▪▸►▹·])\s{1,4}/g;
 const NUMBERED_PATTERN = /(?:^|\s)(\d{1,2}[.)])\s{1,3}/g;
 const DASH_BULLET = /(?:^|\s)(-)\s{2,}/g;
+
+let pdfJsModulePromise: Promise<PdfJsModule> | null = null;
+
+function ensurePdfCanvasGlobals() {
+  const target = globalThis as PdfJsGlobal;
+  target.DOMMatrix ??= DOMMatrix as unknown as typeof globalThis.DOMMatrix;
+  target.ImageData ??= ImageData as unknown as typeof globalThis.ImageData;
+  target.Path2D ??= Path2D as unknown as typeof globalThis.Path2D;
+}
+
+async function loadPdfJs() {
+  ensurePdfCanvasGlobals();
+
+  if (!pdfJsModulePromise) {
+    pdfJsModulePromise = Promise.all([
+      import("pdfjs-dist/legacy/build/pdf.mjs"),
+      import("pdfjs-dist/legacy/build/pdf.worker.mjs"),
+    ]).then(([pdfjs, pdfjsWorker]) => {
+      (globalThis as PdfJsGlobal).pdfjsWorker ??= pdfjsWorker;
+      return pdfjs;
+    });
+  }
+
+  return pdfJsModulePromise;
+}
 
 function splitBulletLines(text: string) {
   if (!text) return text;
@@ -113,6 +141,7 @@ function computeParagraphGap(sortedYs: number[]) {
 }
 
 export async function extractPdfText(buffer: ArrayBuffer) {
+  const { getDocument } = await loadPdfJs();
   const task = getDocument({
     data: new Uint8Array(buffer),
     useWorkerFetch: false,
