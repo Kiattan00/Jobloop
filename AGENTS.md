@@ -11,8 +11,21 @@
 
 - 需要查询外部文档时，优先使用本地 skill。
 - 若缺失对应 skill，再使用 Context7；常用库走 Context7 时，把 library id 记录在本文档。
-- Context7 已使用的 library id：`/vercel/next.js`。
+- Context7 已使用的 library id：`/vercel/next.js`、`/supabase/supabase`。
 - 本地 skill 和 Context7 都没有结果时，再使用网络搜索。
+
+# Supabase 约定
+
+- JobLoop 当前支持“本地模式 + 轻量 Supabase 增强模式”。
+- 若未配置 `NEXT_PUBLIC_SUPABASE_URL` 和 `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`，必须保持本地模式可正常运行，不影响主流程。
+- 不要把全部 `localStorage` 状态迁移到 Supabase；当前仅同步必要数据：
+  - `resume-pdfs` bucket 中的原始 PDF
+  - `resume_sources` 表中的简历来源记录
+  - `ai_run_logs` 表中的 AI 调用日志
+- Supabase 使用匿名登录；相关改动不得破坏首次进入自动获取匿名 `user_id` 的流程。
+- PDF 查看必须同时兼容：
+  - 本地模式下的本地预览
+  - Supabase 模式下经后端生成 signed URL 的预览
 
 # 代码约定
 

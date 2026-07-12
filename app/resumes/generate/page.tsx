@@ -12,6 +12,7 @@ import {
 import { ResumeSourceForm } from "@/components/jobloop/resume-source-form";
 import { ResumeVersionConfirmation } from "@/components/jobloop/resume-version-confirmation";
 import { ResumeVersionDraftCard } from "@/components/jobloop/resume-version-draft-card";
+import { readApiJson } from "@/lib/jobloop/api-client";
 import {
   createResumeVersionsAiOutput,
   createSourceResume,
@@ -82,11 +83,11 @@ export default function GenerateResumesPage() {
         },
         body: JSON.stringify({ sourceResume: source }),
       });
-      const data = (await response.json()) as {
+      const data = await readApiJson<{
         versions?: ResumeVersion[];
         aiOutput?: AiOutput;
         error?: string;
-      };
+      }>(response);
 
       if (!response.ok || !data.versions) {
         throw new Error(data.error || "生成失败，请稍后重试。");

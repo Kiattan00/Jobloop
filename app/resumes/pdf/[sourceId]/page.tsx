@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { JobLoopShell } from "@/components/jobloop/jobloop-shell";
+import { readApiJson } from "@/lib/jobloop/api-client";
 import { getJobLoopState } from "@/lib/jobloop/storage";
 import { fetchWithSupabaseAuth } from "@/lib/jobloop/supabase-browser";
 import type { SourceResume } from "@/lib/jobloop/types";
@@ -67,10 +68,10 @@ export default function ResumePdfPreviewPage() {
               }),
             },
           );
-          const data = (await response.json()) as {
+          const data = await readApiJson<{
             signedUrl?: string;
             error?: string;
-          };
+          }>(response);
 
           if (!response.ok || !data.signedUrl) {
             throw new Error(data.error || "生成 Supabase PDF 地址失败。");

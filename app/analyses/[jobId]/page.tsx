@@ -9,6 +9,7 @@ import { JobAnalysisDetail } from "@/components/jobloop/job-analysis-detail";
 import { JobLoopShell } from "@/components/jobloop/jobloop-shell";
 import { EmptyState } from "@/components/jobloop/page-chrome";
 import { TailoredResumePanel } from "@/components/jobloop/tailored-resume-panel";
+import { readApiJson } from "@/lib/jobloop/api-client";
 import {
   getJobLoopState,
   saveDetailAnalysis,
@@ -68,11 +69,11 @@ export default function AnalysisDetailPage() {
               resumeVersion,
             }),
           });
-          const data = (await response.json()) as {
+          const data = await readApiJson<{
             detail?: JobDetailAnalysis;
             aiOutput?: AiOutput;
             error?: string;
-          };
+          }>(response);
 
           if (!response.ok || !data.detail) {
             throw new Error(data.error || "单岗位分析生成失败，请稍后重试。");
@@ -179,11 +180,11 @@ export default function AnalysisDetailPage() {
           detail,
         }),
       });
-      const data = (await response.json()) as {
+      const data = await readApiJson<{
         tailoredResume?: TailoredResume;
         aiOutput?: AiOutput;
         error?: string;
-      };
+      }>(response);
 
       if (!response.ok || !data.tailoredResume) {
         throw new Error(data.error || "微调简历生成失败，请稍后重试。");

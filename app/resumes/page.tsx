@@ -9,6 +9,7 @@ import {
   PageHeader,
 } from "@/components/jobloop/page-chrome";
 import { ResumeVersionCard } from "@/components/jobloop/resume-version-card";
+import { readApiJson } from "@/lib/jobloop/api-client";
 import {
   createImportedResumeAsset,
   createManualResumeVersion,
@@ -139,7 +140,7 @@ export default function ResumesPage() {
         method: "POST",
         body: formData,
       });
-      const data = (await response.json()) as {
+      const data = await readApiJson<{
         extractedText?: string;
         detectedTitle?: string;
         fileName?: string;
@@ -147,7 +148,7 @@ export default function ResumesPage() {
         pdfStoragePath?: string;
         totalPages?: number;
         error?: string;
-      };
+      }>(response);
 
       if (!response.ok || !data.extractedText) {
         throw new Error(data.error || "PDF 识别失败，请稍后重试。");

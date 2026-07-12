@@ -7,6 +7,7 @@ import { CurrentAnalysisList } from "@/components/jobloop/current-analysis-list"
 import { JdBatchInput } from "@/components/jobloop/jd-batch-input";
 import { JobLoopShell } from "@/components/jobloop/jobloop-shell";
 import { EmptyState, PageHeader } from "@/components/jobloop/page-chrome";
+import { readApiJson } from "@/lib/jobloop/api-client";
 import { createEntityId } from "@/lib/jobloop/generators";
 import {
   analyzeJdBatchText,
@@ -207,10 +208,10 @@ export default function AnalysesPage() {
         );
         clearTimeout(enrichTimer);
 
-        const enrichData = (await enrichResponse.json()) as {
+        const enrichData = await readApiJson<{
           job?: JobJd;
           error?: string;
-        };
+        }>(enrichResponse);
 
         if (!enrichResponse.ok || !enrichData.job) {
           throw new Error(enrichData.error || "岗位信息补充失败，请稍后重试。");
@@ -244,11 +245,11 @@ export default function AnalysesPage() {
         });
         clearTimeout(scoreTimer);
 
-        const scoreData = (await scoreResponse.json()) as {
+        const scoreData = await readApiJson<{
           result?: JobAnalysisResult;
           aiOutput?: AiOutput;
           error?: string;
-        };
+        }>(scoreResponse);
 
         if (!scoreResponse.ok || !scoreData.result) {
           throw new Error(scoreData.error || "岗位评分失败，请稍后重试。");
@@ -288,11 +289,11 @@ export default function AnalysesPage() {
         );
         clearTimeout(detailTimer);
 
-        const detailData = (await detailResponse.json()) as {
+        const detailData = await readApiJson<{
           detail?: JobDetailAnalysis;
           aiOutput?: AiOutput;
           error?: string;
-        };
+        }>(detailResponse);
 
         if (detailResponse.ok && detailData.detail) {
           saveDetailAnalysis(detailData.detail, detailData.aiOutput);
