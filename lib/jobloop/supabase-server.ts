@@ -5,6 +5,7 @@ import {
   hasSupabaseServerEnv,
   SUPABASE_RESUME_BUCKET,
 } from "./supabase-config";
+import type { AiOutput } from "./types";
 
 function getRequiredEnv() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -159,22 +160,29 @@ export async function createSignedResumePdfUrl(params: {
 
 export async function logAiRunForUser(params: {
   accessToken: string;
-  taskType: string;
-  model?: string;
-  inputSummary: string;
-  outputRefId: string;
+  aiOutput: AiOutput;
 }) {
-  const { accessToken, taskType, model, inputSummary, outputRefId } = params;
+  const { accessToken, aiOutput } = params;
   const userId = getSupabaseUserIdFromAccessToken(accessToken);
   const serviceClient = createUserClient(accessToken);
+  const timestamp = new Date().toISOString();
 
-  const { error } = await serviceClient.from("ai_run_logs").insert({
-    user_id: userId,
-    task_type: taskType,
-    model: model || null,
-    input_summary: inputSummary,
-    output_ref_id: outputRefId,
-  });
+  const { error } = await serviceClient.from("ai_run_logs").upsert(
+    {
+      user_id: userId,
+      local_ai_output_id: aiOutput.id,
+      task_type: aiOutput.type,
+      provider: aiOutput.provider || null,
+      model: aiOutput.model || null,
+      source_resume_id: aiOutput.sourceResumeId || null,
+      resume_version_ids: aiOutput.resumeVersionIds,
+      job_ids: aiOutput.jobIds,
+      input_summary: aiOutput.inputSummary,
+      output_ref_id: aiOutput.outputRefId,
+      updated_at: timestamp,
+    },
+    { onConflict: "user_id,local_ai_output_id" },
+  );
 
   if (error) {
     throw error;

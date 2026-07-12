@@ -20,6 +20,7 @@ const DEFAULT_MODEL = "openai/gpt-4o-mini";
 const DEPLOYMENT_FAST_MODE = process.env.AI_FAST_MODE === "true";
 const COMPANY_RESEARCH_TIMEOUT_MS = 60_000;
 const REQUEST_TIMEOUT_MS = 120_000;
+const JD_PAGE_FETCH_TIMEOUT_MS = 18_000;
 const OPENROUTER_MAX_RETRIES = 3;
 const IPV4_ONLY_AGENT = new https.Agent({
   family: 4,
@@ -135,6 +136,7 @@ type JsonValue =
 
 const getModel = () => process.env.OPENROUTER_MODEL || DEFAULT_MODEL;
 const getDetailModel = () => process.env.OPENROUTER_DETAIL_MODEL || getModel();
+const getVisionModel = () => process.env.OPENROUTER_VISION_MODEL || getModel();
 
 function getDefaultHeaders() {
   return {
@@ -464,6 +466,15 @@ function parseSearchCitations(message: {
 
 function clampScore(value: number) {
   return Math.max(0, Math.min(100, Math.round(value)));
+}
+
+function normalizeExtractedJdText(text: string) {
+  return text
+    .replace(/\r\n/g, "\n")
+    .replace(/\u00a0/g, " ")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
 function extractBulletLikeSections(jdText: string, limit: number) {
@@ -923,6 +934,363 @@ export async function extractStructuredJdOnly(
   } catch {
     return extractStructuredJdQuick(job);
   }
+}
+
+const DIRECT_JD_FETCH_HOST_SUFFIXES = [
+  "zhipin.com",
+  "liepin.com",
+  "lagou.com",
+  "jobs.bytedance.com",
+  "jobs.tencent.com",
+  "jobs.alibaba.com",
+  "jobs.meituan.com",
+];
+
+function shouldDirectFetchJdUrl(rawUrl: string) {
+  try {
+    const hostname = new URL(rawUrl).hostname.toLowerCase();
+    return DIRECT_JD_FETCH_HOST_SUFFIXES.some(
+      (suffix) => hostname === suffix || hostname.endsWith(`.${suffix}`),
+    );
+  } catch {
+    return false;
+  }
+}
+
+function decodeHtmlEntities(text: string) {
+  return text
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/&#x([0-9a-f]+);/gi, (_match, hex: string) =>
+      String.fromCodePoint(Number.parseInt(hex, 16)),
+    )
+    .replace(/&#(\d+);/g, (_match, value: string) =>
+      String.fromCodePoint(Number.parseInt(value, 10)),
+    );
+}
+
+function getHtmlAttribute(tag: string, name: string) {
+  const pattern = new RegExp(
+    `${name}\\s*=\\s*("([^"]*)"|'([^']*)'|([^\\s>]+))`,
+    "i",
+  );
+  const match = tag.match(pattern);
+  return match?.[2] || match?.[3] || match?.[4] || "";
+}
+
+function extractHtmlMetadata(html: string) {
+  const title = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] || "";
+  const metaValues = Array.from(html.matchAll(/<meta\b[^>]*>/gi)).flatMap(
+    ([tag]) => {
+      const key = (
+        getHtmlAttribute(tag, "name") || getHtmlAttribute(tag, "property")
+      ).toLowerCase();
+      if (
+        !["description", "keywords", "og:title", "og:description"].includes(key)
+      ) {
+        return [];
+      }
+      const content = getHtmlAttribute(tag, "content").trim();
+      return content ? [content] : [];
+    },
+  );
+
+  return [title, ...metaValues].filter(Boolean).join("\n");
+}
+
+function htmlToReadableText(html: string) {
+  const metadata = extractHtmlMetadata(html);
+  const bodyText = html
+    .replace(/<script\b[\s\S]*?<\/script>/gi, "\n")
+    .replace(/<style\b[\s\S]*?<\/style>/gi, "\n")
+    .replace(/<noscript\b[\s\S]*?<\/noscript>/gi, "\n")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/(?:p|div|li|section|article|h[1-6]|tr)>/gi, "\n")
+    .replace(/<[^>]+>/g, " ");
+
+  return normalizeExtractedJdText(
+    decodeHtmlEntities(`${metadata}\n${bodyText}`)
+      .split("\n")
+      .map((line) => line.trim().replace(/\s+/g, " "))
+      .filter(Boolean)
+      .join("\n"),
+  ).slice(0, 18_000);
+}
+
+function looksLikeBlockedJobPage(text: string) {
+  const normalized = text.toLowerCase();
+  const blockedSignals = [
+    "安全验证",
+    "验证码",
+    "访问过于频繁",
+    "boss直聘安全中心",
+    "security check",
+    "verify you are human",
+  ];
+  const jdSignals = ["职位描述", "岗位职责", "任职要求", "岗位要求"];
+
+  return (
+    blockedSignals.some((signal) =>
+      normalized.includes(signal.toLowerCase()),
+    ) && !jdSignals.some((signal) => text.includes(signal))
+  );
+}
+
+async function fetchJdPageReadableText(url: string) {
+  if (!shouldDirectFetchJdUrl(url)) {
+    return "";
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(
+    () => controller.abort(),
+    JD_PAGE_FETCH_TIMEOUT_MS,
+  );
+
+  try {
+    const response = await fetch(url, {
+      headers: {
+        Accept:
+          "text/html,application/xhtml+xml,application/xml;q=0.9,text/plain;q=0.8,*/*;q=0.7",
+        "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+        "Cache-Control": "no-cache",
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36",
+      },
+      redirect: "follow",
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      return "";
+    }
+
+    const html = await response.text();
+    const readableText = htmlToReadableText(html);
+    if (looksLikeBlockedJobPage(readableText)) {
+      return "";
+    }
+
+    return readableText;
+  } catch {
+    return "";
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function parseJdExtractionCompletion(
+  responseText: string,
+  fallbackUrl: string,
+  model: string,
+) {
+  const completion = JSON.parse(responseText) as {
+    choices?: Array<{
+      message?: {
+        content?: unknown;
+      };
+    }>;
+  };
+  const rawText = extractTextContent(completion.choices?.[0]?.message?.content);
+  if (!rawText) {
+    throw new Error("URL 识别没有返回内容");
+  }
+
+  const data = parseJsonPayload<{
+    companyName?: string;
+    jobTitle?: string;
+    jdText?: string;
+    sourceUrl?: string;
+  }>(rawText);
+  const jdText = normalizeExtractedJdText(data.jdText || "");
+
+  return {
+    companyName: data.companyName?.trim() || "",
+    jobTitle: data.jobTitle?.trim() || "",
+    jdText,
+    sourceUrl: data.sourceUrl?.trim() || fallbackUrl,
+    model,
+  };
+}
+
+async function extractJdFromReadablePageText(url: string, pageText: string) {
+  const model = getModel();
+  const responseText = await postOpenRouterChatCompletion({
+    model,
+    temperature: 0,
+    max_tokens: 4096,
+    response_format: { type: "json_object" },
+    messages: [
+      {
+        role: "system",
+        content:
+          "你是 JobLoop 的招聘页面正文抽取器。用户会给你招聘链接和服务端读取到的页面可见文本。只从给定文本中抽取该链接对应的岗位信息，禁止补写、推断或混入其他岗位。只返回合法 JSON。",
+      },
+      {
+        role: "user",
+        content: JSON.stringify(
+          {
+            task: "extract_job_description_from_readable_page_text",
+            url,
+            pageText,
+            outputSchema: {
+              companyName: "",
+              jobTitle: "",
+              jdText: "",
+              sourceUrl: "",
+            },
+            requirements: [
+              "jdText 必须保留原文可见的职位描述、岗位职责、任职要求、薪资、地点、经验、学历等信息",
+              "不要改写成分析报告，不要补充页面中没有的职责或要求",
+              "忽略登录提示、导航栏、按钮、分享、举报、推荐岗位和平台广告",
+              "如果页面正文被安全验证拦截，jdText 返回空字符串",
+            ],
+          },
+          null,
+          2,
+        ),
+      },
+    ],
+  });
+
+  return parseJdExtractionCompletion(responseText, url, model);
+}
+
+export async function extractJdFromUrlWithAi(url: string) {
+  const pageText = await fetchJdPageReadableText(url);
+
+  if (pageText.length >= 120) {
+    const directResult = await extractJdFromReadablePageText(url, pageText);
+    if (directResult.jdText.length >= 40) {
+      return directResult;
+    }
+  }
+
+  const model = getModel();
+  const responseText = await postOpenRouterChatCompletion({
+    model,
+    temperature: 0.1,
+    max_tokens: 4096,
+    response_format: { type: "json_object" },
+    tools: [{ type: "openrouter:web_search" }],
+    messages: [
+      {
+        role: "system",
+        content:
+          "你是 JobLoop 的 JD 页面识别助手。请打开用户提供的招聘链接，只提取该链接对应的岗位 JD 信息。不要总结网页导航、广告、推荐职位或平台噪音。若页面无法访问，请基于可搜索到的公开片段保守提取，并在 jdText 中注明信息可能不完整。只返回合法 JSON。",
+      },
+      {
+        role: "user",
+        content: JSON.stringify(
+          {
+            task: "extract_job_description_from_url",
+            url,
+            outputSchema: {
+              companyName: "",
+              jobTitle: "",
+              jdText: "",
+              sourceUrl: "",
+            },
+            requirements: [
+              "jdText 必须包含岗位职责、任职要求、薪资/地点/经验等可见信息",
+              "保留原网页中可见的关键条目，不要改写成分析报告",
+              "不要输出无关岗位、页面推荐、登录提示、导航栏或广告文案",
+            ],
+          },
+          null,
+          2,
+        ),
+      },
+    ],
+  });
+  const result = parseJdExtractionCompletion(responseText, url, model);
+
+  if (result.jdText.length < 40) {
+    throw new Error(
+      "该岗位链接页面未开放足够正文，可能被招聘平台登录/安全验证限制。请上传岗位截图，或直接粘贴 JD 正文后再分析。",
+    );
+  }
+
+  return result;
+}
+
+export async function extractJdFromImageWithAi(params: {
+  imageDataUrl: string;
+  fileName: string;
+}) {
+  const { imageDataUrl, fileName } = params;
+  const responseText = await postOpenRouterChatCompletion({
+    model: getVisionModel(),
+    temperature: 0,
+    max_tokens: 4096,
+    response_format: { type: "json_object" },
+    messages: [
+      {
+        role: "system",
+        content:
+          "你是严格 OCR 转写引擎，不是 JD 分析器。你的唯一任务是逐字转写图片中可见的招聘文字。禁止补全、改写、总结、推断、纠错、同义替换或根据常识添加图片中不存在的工具/职责/要求。保留原始标题、薪资、地点、经验、学历、标签、段落、编号和换行顺序。看不清的字写为[无法辨认]。只返回合法 JSON。",
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({
+              task: "verbatim_ocr_job_description_image",
+              fileName,
+              outputSchema: {
+                jdText: "",
+              },
+              requirements: [
+                "jdText 只能包含图片中肉眼可见的文字",
+                "从顶部职位标题、薪资、地点、经验、学历开始转写，继续转写职位描述、岗位职责、任职要求等正文",
+                "工具名、平台名、英文大小写、数字、标点必须尽量按图片原文保留",
+                "不要把标签词推断成岗位名，不要生成 companyName 或 jobTitle 字段",
+                "不要添加图片中没有出现的技术、平台、指标、项目管理、团队管理或合规内容",
+                "可忽略按钮、侧边栏、聊天入口、推荐职位、头像姓名等非 JD 主体内容",
+                "如果截图只包含部分 JD，只转写可见部分，不要补齐不可见内容",
+              ],
+            }),
+          },
+          {
+            type: "image_url",
+            image_url: {
+              url: imageDataUrl,
+            },
+          },
+        ],
+      },
+    ],
+  });
+  const completion = JSON.parse(responseText) as {
+    choices?: Array<{
+      message?: {
+        content?: unknown;
+      };
+    }>;
+  };
+  const rawText = extractTextContent(completion.choices?.[0]?.message?.content);
+  if (!rawText) {
+    throw new Error("图片识别没有返回内容");
+  }
+
+  const data = parseJsonPayload<{
+    jdText?: string;
+  }>(rawText);
+  const jdText = normalizeExtractedJdText(data.jdText || "");
+
+  if (jdText.length < 30) {
+    throw new Error("未能从图片识别出足够的岗位文字");
+  }
+
+  return {
+    jdText,
+    model: getVisionModel(),
+  };
 }
 
 export async function enrichCompanyOnly(job: JobJd): Promise<CompanyResearch> {

@@ -20,10 +20,7 @@ export async function maybeLogAiRun(request: Request, aiOutput?: AiOutput) {
   try {
     await logAiRunForUser({
       accessToken,
-      taskType: aiOutput.type,
-      model: aiOutput.model,
-      inputSummary: aiOutput.inputSummary,
-      outputRefId: aiOutput.outputRefId,
+      aiOutput,
     });
   } catch (error) {
     console.error("Failed to log ai_run_logs", error);

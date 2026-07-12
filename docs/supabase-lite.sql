@@ -23,12 +23,29 @@ create table if not exists public.resume_sources (
 create table if not exists public.ai_run_logs (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users (id) on delete cascade,
+  local_ai_output_id text,
   task_type text not null,
+  provider text,
   model text,
+  source_resume_id text,
+  resume_version_ids text[] not null default '{}',
+  job_ids text[] not null default '{}',
   input_summary text not null,
   output_ref_id text not null,
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
 );
+
+alter table public.ai_run_logs
+  add column if not exists local_ai_output_id text,
+  add column if not exists provider text,
+  add column if not exists source_resume_id text,
+  add column if not exists resume_version_ids text[] not null default '{}',
+  add column if not exists job_ids text[] not null default '{}',
+  add column if not exists updated_at timestamptz not null default now();
+
+create unique index if not exists ai_run_logs_user_local_ai_output_id_key
+on public.ai_run_logs (user_id, local_ai_output_id);
 
 alter table public.resume_sources enable row level security;
 alter table public.ai_run_logs enable row level security;
@@ -59,6 +76,14 @@ create policy "ai_run_logs_insert_own"
 on public.ai_run_logs
 for insert
 to authenticated
+with check ((select auth.uid()) = user_id);
+
+drop policy if exists "ai_run_logs_update_own" on public.ai_run_logs;
+create policy "ai_run_logs_update_own"
+on public.ai_run_logs
+for update
+to authenticated
+using ((select auth.uid()) = user_id)
 with check ((select auth.uid()) = user_id);
 
 drop policy if exists "resume_pdfs_insert_own" on storage.objects;

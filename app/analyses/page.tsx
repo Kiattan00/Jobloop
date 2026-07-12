@@ -42,6 +42,46 @@ function createEmptyInputs() {
   return Array.from({ length: MAX_JD_INPUTS }, () => "");
 }
 
+function parseHttpUrl(value: string) {
+  try {
+    const url = new URL(value.trim());
+    if (!["http:", "https:"].includes(url.protocol)) {
+      return null;
+    }
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
+
+function isUrlOnlyInput(value: string) {
+  const trimmed = value.trim();
+  return (
+    Boolean(trimmed) && /^\S+$/u.test(trimmed) && Boolean(parseHttpUrl(trimmed))
+  );
+}
+
+function formatRecognizedJd({
+  companyName,
+  jobTitle,
+  jdText,
+  sourceUrl,
+}: {
+  companyName?: string;
+  jobTitle?: string;
+  jdText: string;
+  sourceUrl?: string;
+}) {
+  return [
+    companyName ? `公司：${companyName}` : "",
+    jobTitle ? `岗位：${jobTitle}` : "",
+    sourceUrl ? `链接：${sourceUrl}` : "",
+    jdText,
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
 function createPendingResult(jobId: string): JobAnalysisResult {
   return {
     id: createEntityId("analysis"),
@@ -98,6 +138,9 @@ export default function AnalysesPage() {
   const [inputs, setInputs] = useState<string[]>(createEmptyInputs);
   const [currentBatchId, setCurrentBatchId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [recognizingSlotIndex, setRecognizingSlotIndex] = useState<
+    number | null
+  >(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -118,7 +161,8 @@ export default function AnalysesPage() {
 
   const hasResumeVersions = (state?.resumeVersions.length ?? 0) > 0;
   const filledCount = inputs.filter((value) => value.trim().length > 0).length;
-  const canAnalyze = filledCount > 0 && !loading;
+  const canAnalyze =
+    filledCount > 0 && !loading && recognizingSlotIndex === null;
 
   const currentResults = useMemo(() => {
     if (!state || !currentBatchId) {
@@ -143,12 +187,117 @@ export default function AnalysesPage() {
     setError(null);
   };
 
+  const handleImageUpload = async (index: number, file: File) => {
+    setRecognizingSlotIndex(index);
+    setError(null);
+
+    try {
+      const formData = new FormData();
+      formData.set("files", file);
+
+      const response = await fetchWithSupabaseAuth("/api/ai/jd-image", {
+        method: "POST",
+        body: formData,
+      });
+      const data = await readApiJson<{
+        items?: Array<{
+          jdText: string;
+          fileName: string;
+        }>;
+        error?: string;
+      }>(response);
+
+      const item = data.items?.[0];
+      if (!response.ok || !item?.jdText) {
+        throw new Error(data.error || "岗位截图识别失败，请稍后重试。");
+      }
+
+      setInputs((current) =>
+        current.map((value, currentIndex) =>
+          currentIndex === index ? item.jdText : value,
+        ),
+      );
+    } catch (uploadError) {
+      setError(
+        uploadError instanceof Error
+          ? uploadError.message
+          : "岗位截图识别失败，请稍后重试。",
+      );
+    } finally {
+      setRecognizingSlotIndex(null);
+    }
+  };
+
+  const resolveUrlInputs = async (currentInputs: string[]) => {
+    const nextInputs = [...currentInputs];
+
+    for (let index = 0; index < nextInputs.length; index += 1) {
+      const value = nextInputs[index];
+      if (!isUrlOnlyInput(value)) {
+        continue;
+      }
+
+      const url = parseHttpUrl(value);
+      if (!url) {
+        continue;
+      }
+
+      setRecognizingSlotIndex(index);
+      const response = await fetchWithSupabaseAuth("/api/ai/jd-url", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ url }),
+      });
+      const data = await readApiJson<{
+        companyName?: string;
+        jobTitle?: string;
+        jdText?: string;
+        sourceUrl?: string;
+        error?: string;
+      }>(response);
+
+      if (!response.ok || !data.jdText) {
+        throw new Error(data.error || `岗位 ${index + 1} 的链接识别失败。`);
+      }
+
+      nextInputs[index] = formatRecognizedJd({
+        companyName: data.companyName,
+        jobTitle: data.jobTitle,
+        jdText: data.jdText,
+        sourceUrl: data.sourceUrl || url,
+      });
+    }
+
+    return nextInputs;
+  };
+
   const handleAnalyze = async () => {
     if (!state) {
       return;
     }
 
-    const { drafts, warnings } = parseSingleJobDrafts(inputs);
+    setError(null);
+
+    let preparedInputs = inputs;
+
+    try {
+      preparedInputs = await resolveUrlInputs(inputs);
+      setInputs(preparedInputs);
+    } catch (resolveError) {
+      setError(
+        resolveError instanceof Error
+          ? resolveError.message
+          : "岗位链接识别失败，请稍后重试。",
+      );
+      setRecognizingSlotIndex(null);
+      return;
+    } finally {
+      setRecognizingSlotIndex(null);
+    }
+
+    const { drafts, warnings } = parseSingleJobDrafts(preparedInputs);
 
     if (warnings.length > 0) {
       setError(warnings[0]);
@@ -371,10 +520,14 @@ export default function AnalysesPage() {
           <>
             <div className="grid gap-5 lg:grid-cols-[1.06fr_0.94fr]">
               <JdBatchInput
+                busySlotIndex={recognizingSlotIndex}
                 canAnalyze={canAnalyze}
                 filledCount={filledCount}
                 onAnalyze={handleAnalyze}
                 onChange={handleInputChange}
+                onImageUpload={(index, file) =>
+                  void handleImageUpload(index, file)
+                }
                 values={inputs}
               />
 
