@@ -542,8 +542,8 @@
 - 岗位 URL 识别：
   - 新增 [app/api/ai/jd-url/route.ts](/C:/Users/admin/Documents/JobLoop/app/api/ai/jd-url/route.ts)。
   - [lib/jobloop/server-ai-jobs.ts](/C:/Users/admin/Documents/JobLoop/lib/jobloop/server-ai-jobs.ts) 新增 `extractJdFromUrlWithAi(url)`。
-  - 识别顺序：服务端直读招聘页面 HTML → 清洗可读文本 → AI 抽取 JD；若不足，再走 OpenRouter `web_search` 兜底。
-  - Boss 直聘等平台若因登录/安全验证导致正文不可读，会返回明确提示，要求用户上传截图或粘贴 JD 正文，不编造正文。
+  - 识别顺序：服务端直读招聘页面 HTML → 清洗可读文本 → AI 抽取 JD。
+  - Boss 直聘等平台若因登录/安全验证导致正文不可读，会返回明确提示，要求用户上传截图或粘贴 JD 正文；禁止再用 OpenRouter `web_search` 猜测岗位正文，避免相似页面污染。
 - 岗位截图 OCR：
   - 新增 [app/api/ai/jd-image/route.ts](/C:/Users/admin/Documents/JobLoop/app/api/ai/jd-image/route.ts)。
   - [lib/jobloop/server-ai-jobs.ts](/C:/Users/admin/Documents/JobLoop/lib/jobloop/server-ai-jobs.ts) 新增 `extractJdFromImageWithAi(...)`。

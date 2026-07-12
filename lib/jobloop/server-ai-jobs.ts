@@ -1170,52 +1170,9 @@ export async function extractJdFromUrlWithAi(url: string) {
     }
   }
 
-  const model = getModel();
-  const responseText = await postOpenRouterChatCompletion({
-    model,
-    temperature: 0.1,
-    max_tokens: 4096,
-    response_format: { type: "json_object" },
-    tools: [{ type: "openrouter:web_search" }],
-    messages: [
-      {
-        role: "system",
-        content:
-          "你是 JobLoop 的 JD 页面识别助手。请打开用户提供的招聘链接，只提取该链接对应的岗位 JD 信息。不要总结网页导航、广告、推荐职位或平台噪音。若页面无法访问，请基于可搜索到的公开片段保守提取，并在 jdText 中注明信息可能不完整。只返回合法 JSON。",
-      },
-      {
-        role: "user",
-        content: JSON.stringify(
-          {
-            task: "extract_job_description_from_url",
-            url,
-            outputSchema: {
-              companyName: "",
-              jobTitle: "",
-              jdText: "",
-              sourceUrl: "",
-            },
-            requirements: [
-              "jdText 必须包含岗位职责、任职要求、薪资/地点/经验等可见信息",
-              "保留原网页中可见的关键条目，不要改写成分析报告",
-              "不要输出无关岗位、页面推荐、登录提示、导航栏或广告文案",
-            ],
-          },
-          null,
-          2,
-        ),
-      },
-    ],
-  });
-  const result = parseJdExtractionCompletion(responseText, url, model);
-
-  if (result.jdText.length < 40) {
-    throw new Error(
-      "该岗位链接页面未开放足够正文，可能被招聘平台登录/安全验证限制。请上传岗位截图，或直接粘贴 JD 正文后再分析。",
-    );
-  }
-
-  return result;
+  throw new Error(
+    "该岗位链接页面未开放足够正文，可能被招聘平台登录/安全验证限制。请上传岗位截图，或直接粘贴 JD 正文后再分析。",
+  );
 }
 
 export async function extractJdFromImageWithAi(params: {
