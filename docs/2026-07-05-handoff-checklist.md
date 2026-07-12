@@ -524,3 +524,54 @@
   - 打开的不是最新端口实例；
   - 浏览器里残留了历史 `localStorage` 分析结果；
   - 页面仍停留在旧进程（如 3006/3007）的结果视图。
+
+## 2026-07-13 修复补充（第十三轮）
+
+### 本轮目标
+
+- 将“已上传 PDF + 简历来源记录 + AI 分析记录”同步到 Supabase 的轻量增强模式补齐到当前边界。
+- 在岗位分析模块新增 URL 识别、图片输入和多模态文字识别能力。
+- 按用户标注调整 UI：图片上传按钮放在每个 JD 输入框右侧，原 textarea 支持 URL，保持 JD 输入区和分析结果区整体尺寸不变。
+
+### 已完成内容
+
+- Supabase 同步：
+  - [docs/supabase-lite.sql](/C:/Users/admin/Documents/JobLoop/docs/supabase-lite.sql) 增补 `ai_run_logs` 元数据字段：`local_ai_output_id`、`provider`、`source_resume_id`、`resume_version_ids`、`job_ids`、`updated_at`。
+  - [lib/jobloop/ai-run-log.ts](/C:/Users/admin/Documents/JobLoop/lib/jobloop/ai-run-log.ts) 和 [lib/jobloop/supabase-server.ts](/C:/Users/admin/Documents/JobLoop/lib/jobloop/supabase-server.ts) 支持把 AI 输出来源元数据 upsert 到 Supabase。
+  - 注意：本轮没有把完整 `localStorage` 状态搬到 Supabase，仍遵守轻量同步边界。
+- 岗位 URL 识别：
+  - 新增 [app/api/ai/jd-url/route.ts](/C:/Users/admin/Documents/JobLoop/app/api/ai/jd-url/route.ts)。
+  - [lib/jobloop/server-ai-jobs.ts](/C:/Users/admin/Documents/JobLoop/lib/jobloop/server-ai-jobs.ts) 新增 `extractJdFromUrlWithAi(url)`。
+  - 识别顺序：服务端直读招聘页面 HTML → 清洗可读文本 → AI 抽取 JD；若不足，再走 OpenRouter `web_search` 兜底。
+  - Boss 直聘等平台若因登录/安全验证导致正文不可读，会返回明确提示，要求用户上传截图或粘贴 JD 正文，不编造正文。
+- 岗位截图 OCR：
+  - 新增 [app/api/ai/jd-image/route.ts](/C:/Users/admin/Documents/JobLoop/app/api/ai/jd-image/route.ts)。
+  - [lib/jobloop/server-ai-jobs.ts](/C:/Users/admin/Documents/JobLoop/lib/jobloop/server-ai-jobs.ts) 新增 `extractJdFromImageWithAi(...)`。
+  - OCR prompt 已收紧为“严格逐字转写”，只返回 `{ jdText }`，不从截图推断公司名或岗位名，避免杜撰。
+- 前端入口：
+  - [components/jobloop/jd-batch-input.tsx](/C:/Users/admin/Documents/JobLoop/components/jobloop/jd-batch-input.tsx) 每个 JD 输入行右侧新增图片上传按钮，保留清空按钮。
+  - [app/analyses/page.tsx](/C:/Users/admin/Documents/JobLoop/app/analyses/page.tsx) 在分析前识别 URL-only 输入，并将识别出的 JD 写回原输入框后进入原有分析流程。
+
+### 本轮验证
+
+- `npm run typecheck` 通过。
+- `npm run build` 通过。
+- `npm run quality` 通过；仍有既有 Biome unsafe suggested fixes 警告，未自动改动。
+- 功能提交已完成并推送：
+  - commit：`ec020fb Add JD URL and image extraction`
+  - remote：`origin/main`
+
+### 手动验收建议
+
+1. 打开 `http://localhost:3001/analyses`，在任一 JD 输入框粘贴普通 JD 正文，确认原有批量分析流程不回退。
+2. 在单个输入框粘贴 Boss 直聘链接，点击“开始岗位分析”：
+   - 若平台页面可读，应自动回填“公司 / 岗位 / 链接 / JD 正文”并继续分析。
+   - 若平台限制读取，应显示“请上传岗位截图或粘贴 JD 正文”的明确提示。
+3. 点击输入框右侧图片按钮上传岗位截图，确认 textarea 被 OCR 文本替换，且不出现截图中不存在的职责、工具或要求。
+4. 上传一份 PDF 简历，刷新页面后确认本地模式仍可查看；Supabase 环境下确认 `resume-pdfs`、`resume_sources`、`ai_run_logs` 有对应记录。
+
+### 当前注意点
+
+- `localhost:3000` 被其他项目占用时，JobLoop 本地页面应使用 `http://localhost:3001/analyses`。
+- URL 识别不能绕过招聘平台登录、安全验证或反爬限制；截图 OCR / 粘贴正文是 Boss 链接失败时的推荐兜底。
+- OCR 是视觉模型能力，生产环境如需稳定识图，建议设置 `OPENROUTER_VISION_MODEL` 为明确支持 image input 的模型。
