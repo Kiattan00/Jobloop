@@ -512,6 +512,15 @@ function isUsableStructuredJobTitle(value?: string | null) {
     return false;
   }
 
+  const productMentions = text.match(/产品/g)?.length ?? 0;
+  const hasRoleSuffix =
+    /(经理|助理|顾问|工程师|架构师|专家|实习生|负责人|主管|专员|总监|售前|运营|分析师|开发|测试)$/i.test(
+      text,
+    );
+  if (productMentions >= 3 && !hasRoleSuffix) {
+    return false;
+  }
+
   return ![
     "负责",
     "职位描述",

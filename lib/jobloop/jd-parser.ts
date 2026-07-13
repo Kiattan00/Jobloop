@@ -233,9 +233,18 @@ function isPlatformNoiseLine(line: string) {
   }
 
   return (
+    text.includes("活跃") ||
     PLATFORM_NOISE_HINTS.some((hint) => text.includes(hint)) ||
     /[·・]\s*(?:人事|招聘|HR)/i.test(text)
   );
+}
+
+function extractCompanyFromRecruiterLine(line: string) {
+  const text = cleanLine(line);
+  const match = text.match(
+    /^(.{2,30}?)[·・]\s*(?:人事|招聘|HR|招聘经理|招聘专员|人事经理)/i,
+  );
+  return match?.[1]?.trim() || "";
 }
 
 function isLikelyMetaLine(line: string) {
@@ -352,11 +361,17 @@ function looksLikeJobTitle(line: string) {
     return false;
   }
 
+  const productMentions = text.match(/产品/g)?.length ?? 0;
+  const hasRoleSuffix = ROLE_SUFFIXES.some((suffix) =>
+    normalized.endsWith(normalizeForMatch(suffix)),
+  );
+  if (productMentions >= 3 && !hasRoleSuffix) {
+    return false;
+  }
+
   const hasRoleHint =
     ROLE_HINTS.some((hint) => normalized.includes(normalizeForMatch(hint))) ||
-    ROLE_SUFFIXES.some((suffix) =>
-      normalized.endsWith(normalizeForMatch(suffix)),
-    );
+    hasRoleSuffix;
 
   const looksLikeTitleShape =
     !/[，,；;。！？!?]/.test(text) &&
@@ -419,16 +434,18 @@ function scoreStart(lines: string[], index: number) {
   const nextTwo = lines.slice(index + 1, index + 4);
   const nextEight = lines.slice(index + 1, index + 1 + FOLLOWUP_SCAN_LIMIT);
   let score = 0;
+  const currentTitle = extractJobTitleFromLine(current);
+  const currentCompanyStart = looksLikeCompanyStart(current);
 
   if (isPlatformNoiseLine(current)) {
     return -4;
   }
 
-  if (looksLikeCompanyStart(current)) {
+  if (currentCompanyStart) {
     score += 5;
   }
 
-  if (extractJobTitleFromLine(current)) {
+  if (currentTitle) {
     score += 3;
   }
 
@@ -436,7 +453,7 @@ function scoreStart(lines: string[], index: number) {
     score -= 4;
   }
 
-  if (isLikelyMetaLine(next)) {
+  if ((currentTitle || currentCompanyStart) && isLikelyMetaLine(next)) {
     score += 3;
   }
 
@@ -447,7 +464,10 @@ function scoreStart(lines: string[], index: number) {
     score += 2;
   }
 
-  if (nextEight.some((line) => looksLikeBodySection(line))) {
+  if (
+    (currentTitle || currentCompanyStart) &&
+    nextEight.some((line) => looksLikeBodySection(line))
+  ) {
     score += 2;
   }
 
@@ -487,7 +507,10 @@ function splitSourceBlock(source: string) {
 
     const startScore = scoreStart(lines, index);
     if (startScore >= START_THRESHOLD) {
-      startIndexes.add(index);
+      const previousCompany = extractCompanyFromRecruiterLine(
+        lines[index - 1] || "",
+      );
+      startIndexes.add(previousCompany ? index - 1 : index);
     }
   }
 
@@ -499,6 +522,7 @@ function splitSourceBlock(source: string) {
     const end = orderedStarts[i + 1] ?? lines.length;
     const slice = lines
       .slice(start, end)
+      .map((line) => extractCompanyFromRecruiterLine(line) || line)
       .filter((line) => !isPlatformNoiseLine(line))
       .filter(Boolean);
 
@@ -513,7 +537,9 @@ function splitSourceBlock(source: string) {
   if (blocks.length === 0) {
     return [
       {
-        lines: lines.filter((line) => !isPlatformNoiseLine(line)),
+        lines: lines
+          .map((line) => extractCompanyFromRecruiterLine(line) || line)
+          .filter((line) => !isPlatformNoiseLine(line)),
         startIndexes: [0],
       },
     ];
