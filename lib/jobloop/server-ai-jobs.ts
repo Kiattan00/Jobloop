@@ -739,6 +739,96 @@ function pickFallbackResumeVersionId(
   return sorted[0]?.id ?? resumeVersions[0]?.id ?? "";
 }
 
+function cleanInlineText(text?: string | null) {
+  return (text || "")
+    .replace(/\s+/g, " ")
+    .replace(/【[^】]{1,20}】/g, "")
+    .trim();
+}
+
+function truncateSentence(text: string, maxLength: number) {
+  const cleaned = cleanInlineText(text);
+  if (cleaned.length <= maxLength) {
+    return cleaned;
+  }
+
+  const sliced = cleaned.slice(0, maxLength);
+  const breakIndex = Math.max(
+    sliced.lastIndexOf("。"),
+    sliced.lastIndexOf("；"),
+    sliced.lastIndexOf(";"),
+    sliced.lastIndexOf("，"),
+    sliced.lastIndexOf(","),
+  );
+
+  return `${sliced.slice(0, breakIndex > 40 ? breakIndex : maxLength).trim()}...`;
+}
+
+function decisionSummaryLabel(decision: JobAnalysisResult["applyDecision"]) {
+  if (decision === "recommend") return "推荐投递";
+  if (decision === "not_recommended") return "不建议优先投递";
+  return "建议谨慎投递";
+}
+
+function scoreLevel(score: number) {
+  if (score >= 80) return "高";
+  if (score >= 65) return "较好";
+  if (score >= 50) return "中等";
+  return "偏低";
+}
+
+function normalizeCardSummary({
+  item,
+  job,
+  matchScore,
+  recommendedResumeVersionId,
+  resumeVersions,
+  scoreBreakdown,
+}: {
+  item: {
+    applyDecision: JobAnalysisResult["applyDecision"];
+    mainRisk: string;
+    summary: string;
+  };
+  job: JobJd;
+  matchScore: number;
+  recommendedResumeVersionId: string;
+  resumeVersions: ResumeVersion[];
+  scoreBreakdown: ScoreBreakdown;
+}) {
+  const sourceSummary = cleanInlineText(item.summary);
+  const isVerboseReport =
+    sourceSummary.length > 260 ||
+    /【[^】]+】/.test(sourceSummary) ||
+    /行业匹配度|公司实力|岗位匹配度|薪资竞争力|成长性|评分体系|总评/.test(
+      sourceSummary,
+    );
+
+  if (sourceSummary && !isVerboseReport) {
+    return truncateSentence(sourceSummary, 220);
+  }
+
+  const companyName = job.companyName ? `${job.companyName}` : "";
+  const title = `${companyName}${job.jobTitle}岗位`;
+  const resumeName =
+    resumeVersions.find((version) => version.id === recommendedResumeVersionId)
+      ?.name || "当前最匹配简历";
+  const salary = scoreLevel(scoreBreakdown.salaryCompetitiveness);
+  const company = scoreLevel(scoreBreakdown.companyStrength);
+  const growth = scoreLevel(scoreBreakdown.growthPotential);
+  const role = scoreLevel(scoreBreakdown.roleMatch);
+  const risk = truncateSentence(item.mainRisk, 46).replace(/[。；;，,]+$/g, "");
+  const tailoring =
+    item.summary.includes("微调") || item.mainRisk.includes("微调")
+      ? "需定制简历突出岗位相关交付经验"
+      : "建议投递前微调简历表达";
+
+  return truncateSentence(
+    `${title}综合评分${matchScore}分（满分100），${decisionSummaryLabel(item.applyDecision)}。薪资竞争力${salary}，公司实力${company}，成长性${growth}。岗位匹配度${role}，推荐使用${resumeName}，${tailoring}${risk ? `，重点留意：${risk}` : ""}。`,
+    240,
+  );
+}
+
 function normalizeAnalysisRecord(
   item: {
     jobId: string;
@@ -786,7 +876,14 @@ function normalizeAnalysisRecord(
     applyDecision: item.applyDecision,
     needsTailoring: item.needsTailoring,
     mainRisk: item.mainRisk,
-    summary: item.summary,
+    summary: normalizeCardSummary({
+      item,
+      job,
+      matchScore: clampScore(weightedScore),
+      recommendedResumeVersionId,
+      resumeVersions,
+      scoreBreakdown,
+    }),
     status: "ready",
     createdAt: createTimestamp(),
   };
@@ -1418,7 +1515,7 @@ export async function scoreJobWithAi(
       }>;
     }>({
       system:
-        "你是 JobLoop 的岗位评分与投递决策助手。请基于结构化 JD、公司补充信息和简历版本，对单个岗位打分并输出求职决策摘要。评分体系固定：行业匹配度25%、公司实力20%、岗位匹配度30%、薪资竞争力15%、成长性10%。每个维度先单独给0-100分，再按权重计算总分。\n\n【STRICT】薪资竞争力必须严格按以下查表规则打分，禁止基于自身知识调整：\n1. 取 JD 薪资区间的最低值，结合 location（城市）和 experienceRequirement（工作年限）查下表。\n2. 城市归为两类：一线（北上广深）、其他（新一线/二线/三线统一按此档）。若 location 缺失，按\u201C其他\u201D处理。\n\n一线城市（北上广深）：\n  1-3年：\u226515K→高(80-90)，10-14K→中(55-70)，<10K→低(30-50)\n  3-5年：\u226520K→高(80-90)，15-19K→中(55-70)，<15K→低(30-50)\n  \u22655年：\u226525K→高(80-90)，18-24K→中(55-70)，<18K→低(30-50)\n\n其他城市：\n  1-3年：\u226512K→高(80-90)，8-11K→中(55-70)，<8K→低(30-50)\n  3-5年：\u226516K→高(80-90)，10-15K→中(55-70)，<10K→低(30-50)\n  \u22655年：\u226520K→高(80-90)，13-19K→中(55-70)，<13K→低(30-50)\n\n3. 若 JD 缺少薪资信息，按中性分50处理并在 summary 中说明。\n4. 若 JD 缺少城市或年限，在 summary 中注明\u201C因缺少XX信息，薪资竞争力评估可能偏差\u201D。\n\n只返回合法 JSON。",
+        "你是 JobLoop 的岗位评分与投递决策助手。请基于结构化 JD、公司补充信息和简历版本，对单个岗位打分并输出求职决策摘要。评分体系固定：行业匹配度25%、公司实力20%、岗位匹配度30%、薪资竞争力15%、成长性10%。每个维度先单独给0-100分，再按权重计算总分。\n\n【summary 字段严格要求】summary 只写 2-4 句短摘要，120-220 字；格式接近“XX岗位综合评分81分（满分100），推荐投递。薪资竞争力高，公司实力强，成长性好。岗位匹配度良好，候选人具备XX能力，但需定制简历突出XX经验。”禁止写分项公式、逐项长报告、【总评】、【行业匹配度】等标题。\n\n【STRICT】薪资竞争力必须严格按以下查表规则打分，禁止基于自身知识调整：\n1. 取 JD 薪资区间的最低值，结合 location（城市）和 experienceRequirement（工作年限）查下表。\n2. 城市归为两类：一线（北上广深）、其他（新一线/二线/三线统一按此档）。若 location 缺失，按\u201C其他\u201D处理。\n\n一线城市（北上广深）：\n  1-3年：\u226515K→高(80-90)，10-14K→中(55-70)，<10K→低(30-50)\n  3-5年：\u226520K→高(80-90)，15-19K→中(55-70)，<15K→低(30-50)\n  \u22655年：\u226525K→高(80-90)，18-24K→中(55-70)，<18K→低(30-50)\n\n其他城市：\n  1-3年：\u226512K→高(80-90)，8-11K→中(55-70)，<8K→低(30-50)\n  3-5年：\u226516K→高(80-90)，10-15K→中(55-70)，<10K→低(30-50)\n  \u22655年：\u226520K→高(80-90)，13-19K→中(55-70)，<13K→低(30-50)\n\n3. 若 JD 缺少薪资信息，按中性分50处理并在 summary 中说明。\n4. 若 JD 缺少城市或年限，在 summary 中注明\u201C因缺少XX信息，薪资竞争力评估可能偏差\u201D。\n\n只返回合法 JSON。",
       prompt: {
         task: "single_job_score",
         scoringWeights: {
@@ -1570,7 +1667,7 @@ export async function generateBatchAnalysisWithAi(
     }>;
   }>({
     system:
-      "你是 JobLoop 的岗位评分与投递决策助手。请基于结构化 JD、公司补充信息和简历版本，对每个岗位打分并输出求职决策摘要。评分体系固定：行业匹配度25%、公司实力20%、岗位匹配度30%、薪资竞争力15%、成长性10%。每个维度先单独给0-100分，再按权重计算总分。若 JD 缺少薪资信息，薪资竞争力按中性分50处理，并在 summary 或 mainRisk 中说明“薪资信息缺失”。只返回合法 JSON。",
+      "你是 JobLoop 的岗位评分与投递决策助手。请基于结构化 JD、公司补充信息和简历版本，对每个岗位打分并输出求职决策摘要。评分体系固定：行业匹配度25%、公司实力20%、岗位匹配度30%、薪资竞争力15%、成长性10%。每个维度先单独给0-100分，再按权重计算总分。summary 只写 2-4 句短摘要，120-220 字，禁止写分项公式、逐项长报告、【总评】、【行业匹配度】等标题。若 JD 缺少薪资信息，薪资竞争力按中性分50处理，并在 summary 或 mainRisk 中说明“薪资信息缺失”。只返回合法 JSON。",
     prompt: {
       task: "batch_job_analysis",
       scoringWeights: {
