@@ -117,6 +117,13 @@ const PLATFORM_NOISE_HINTS = [
   "微信扫码",
   "感兴趣",
   "取消感兴趣",
+  "刚刚活跃",
+  "今日活跃",
+  "本周活跃",
+  "本月活跃",
+  "人事经理",
+  "招聘经理",
+  "招聘专员",
 ];
 
 const META_HINTS = [
@@ -225,7 +232,10 @@ function isPlatformNoiseLine(line: string) {
     return true;
   }
 
-  return PLATFORM_NOISE_HINTS.some((hint) => text.includes(hint));
+  return (
+    PLATFORM_NOISE_HINTS.some((hint) => text.includes(hint)) ||
+    /[·・]\s*(?:人事|招聘|HR)/i.test(text)
+  );
 }
 
 function isLikelyMetaLine(line: string) {
@@ -358,6 +368,38 @@ function looksLikeJobTitle(line: string) {
   return hasRoleHint && looksLikeTitleShape;
 }
 
+function removeTrailingCity(text: string) {
+  const normalized = cleanLine(text).replace(/[/|｜·\s]+$/g, "");
+  const matchedCity = CITY_HINTS.find((city) => normalized.endsWith(city));
+  if (!matchedCity) {
+    return normalized;
+  }
+
+  return normalized.slice(0, -matchedCity.length).trim();
+}
+
+function extractMixedMetaJobTitle(line: string) {
+  const text = cleanLine(line);
+  const salaryMatch = text.match(
+    /\d{1,3}(?:\.\d)?\s*-\s*\d{1,3}(?:\.\d)?\s*K/i,
+  );
+  if (!salaryMatch || salaryMatch.index === undefined) {
+    return "";
+  }
+
+  const candidate = removeTrailingCity(text.slice(0, salaryMatch.index));
+  return looksLikeJobTitle(candidate) ? candidate : "";
+}
+
+function extractJobTitleFromLine(line: string) {
+  const text = cleanLine(line);
+  if (looksLikeJobTitle(text)) {
+    return text;
+  }
+
+  return extractMixedMetaJobTitle(text);
+}
+
 function hasBodySignal(block: string) {
   const normalized = normalizeText(block);
   return (
@@ -386,11 +428,11 @@ function scoreStart(lines: string[], index: number) {
     score += 5;
   }
 
-  if (looksLikeJobTitle(current)) {
+  if (extractJobTitleFromLine(current)) {
     score += 3;
   }
 
-  if (looksLikeCompanyStart(prev) && looksLikeJobTitle(current)) {
+  if (looksLikeCompanyStart(prev) && extractJobTitleFromLine(current)) {
     score -= 4;
   }
 
@@ -399,7 +441,7 @@ function scoreStart(lines: string[], index: number) {
   }
 
   if (
-    nextTwo.some((line) => looksLikeJobTitle(line)) &&
+    nextTwo.some((line) => extractJobTitleFromLine(line)) &&
     nextTwo.some((line) => isLikelyMetaLine(line))
   ) {
     score += 2;
@@ -543,20 +585,22 @@ function extractCompanyName(lines: string[], block: string, index: number) {
       !isPlatformNoiseLine(line) &&
       !isLikelyMetaLine(line) &&
       !looksLikeBodySection(line) &&
-      !looksLikeJobTitle(line),
+      !extractJobTitleFromLine(line),
   );
   return fallback || `公司${index + 1}`;
 }
 
 function extractJobTitle(lines: string[], block: string, index: number) {
   const labeled = findValue(block, ["岗位", "职位", "招聘岗位", "Job Title"]);
-  if (labeled && looksLikeJobTitle(labeled)) {
-    return cleanLine(labeled);
+  const labeledTitle = extractJobTitleFromLine(labeled);
+  if (labeledTitle) {
+    return labeledTitle;
   }
 
   for (let i = 0; i < lines.length; i += 1) {
-    if (looksLikeJobTitle(lines[i])) {
-      return cleanLine(lines[i]);
+    const title = extractJobTitleFromLine(lines[i]);
+    if (title) {
+      return title;
     }
   }
 
@@ -577,7 +621,7 @@ function isValidCandidateBlock(block: CandidateBlock) {
     return false;
   }
 
-  const hasJobTitle = block.lines.some((line) => looksLikeJobTitle(line));
+  const hasJobTitle = block.lines.some((line) => extractJobTitleFromLine(line));
   const hasBody = hasBodySignal(text);
   return hasJobTitle && hasBody;
 }

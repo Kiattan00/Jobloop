@@ -498,6 +498,51 @@ function extractStructuredJdQuick(job: JobJd): StructuredJd {
   };
 }
 
+function isUsableStructuredJobTitle(value?: string | null) {
+  const text = value?.trim();
+  if (!text || text.length < 2 || text.length > 40) {
+    return false;
+  }
+
+  if (/^(?:\d+|[一二三四五六七八九十]+)[、.．)]/.test(text)) {
+    return false;
+  }
+
+  if (/[;；。！？]/.test(text)) {
+    return false;
+  }
+
+  return ![
+    "负责",
+    "职位描述",
+    "岗位职责",
+    "工作职责",
+    "职位要求",
+    "任职要求",
+    "需求分析",
+    "产品规划",
+    "原型设计",
+    "PRD",
+    "输出",
+  ].some((keyword) => text.includes(keyword));
+}
+
+function normalizeStructuredJdIdentity(
+  structuredJd: StructuredJd,
+  job: JobJd,
+): StructuredJd {
+  const companyName = structuredJd.companyName?.trim() || job.companyName;
+  const jobTitle = isUsableStructuredJobTitle(structuredJd.jobTitle)
+    ? structuredJd.jobTitle.trim()
+    : job.jobTitle;
+
+  return {
+    ...structuredJd,
+    companyName,
+    jobTitle,
+  };
+}
+
 function toPromptStructuredJd(structuredJd?: StructuredJd | null) {
   if (!structuredJd) {
     return null;
@@ -930,9 +975,9 @@ export async function extractStructuredJdOnly(
   job: JobJd,
 ): Promise<StructuredJd> {
   try {
-    return await extractStructuredJd(job);
+    return normalizeStructuredJdIdentity(await extractStructuredJd(job), job);
   } catch {
-    return extractStructuredJdQuick(job);
+    return normalizeStructuredJdIdentity(extractStructuredJdQuick(job), job);
   }
 }
 
@@ -1297,10 +1342,12 @@ export async function enrichJobWithAi(job: JobJd, trace?: ServerTrace) {
     }
   }
 
+  structuredJd = normalizeStructuredJdIdentity(structuredJd, job);
+
   const enrichedJob: JobJd = {
     ...job,
-    companyName: structuredJd.companyName?.trim() || job.companyName,
-    jobTitle: structuredJd.jobTitle?.trim() || job.jobTitle,
+    companyName: structuredJd.companyName,
+    jobTitle: structuredJd.jobTitle,
     structuredJd,
     companyResearch,
     companyInfo: companyResearch.summary,
@@ -1485,10 +1532,12 @@ export async function generateBatchAnalysisWithAi(
         }
       }
 
+      structuredJd = normalizeStructuredJdIdentity(structuredJd, job);
+
       return {
         ...job,
-        companyName: structuredJd.companyName?.trim() || job.companyName,
-        jobTitle: structuredJd.jobTitle?.trim() || job.jobTitle,
+        companyName: structuredJd.companyName,
+        jobTitle: structuredJd.jobTitle,
         structuredJd,
         companyResearch,
         companyInfo: companyResearch.summary,
