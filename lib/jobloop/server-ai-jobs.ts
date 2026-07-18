@@ -18,7 +18,7 @@ import type {
 const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
 const DEFAULT_MODEL = "openai/gpt-4o-mini";
 const DEPLOYMENT_FAST_MODE = process.env.AI_FAST_MODE === "true";
-const COMPANY_RESEARCH_TIMEOUT_MS = 60_000;
+const COMPANY_RESEARCH_TIMEOUT_MS = 25_000;
 const REQUEST_TIMEOUT_MS = 120_000;
 const JD_PAGE_FETCH_TIMEOUT_MS = 18_000;
 const OPENROUTER_MAX_RETRIES = 3;
@@ -953,7 +953,7 @@ async function buildCompanyResearch(job: JobJd, trace?: ServerTrace) {
 
   let lastError: unknown;
 
-  for (let attempt = 0; attempt <= OPENROUTER_MAX_RETRIES; attempt += 1) {
+  for (let attempt = 0; attempt <= 0; attempt += 1) {
     const controller = new AbortController();
     const timeout = setTimeout(
       () => controller.abort(),

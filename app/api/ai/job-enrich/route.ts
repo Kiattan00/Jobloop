@@ -1,10 +1,7 @@
 import { NextResponse } from "next/server";
 import { maybeLogAiRun } from "@/lib/jobloop/ai-run-log";
 import { createTimestamp } from "@/lib/jobloop/generators";
-import {
-  enrichCompanyOnly,
-  extractStructuredJdOnly,
-} from "@/lib/jobloop/server-ai-jobs";
+import { enrichJobWithAi } from "@/lib/jobloop/server-ai-jobs";
 import { createServerTrace } from "@/lib/jobloop/server-trace";
 import type { AiOutput, JobJd } from "@/lib/jobloop/types";
 
@@ -20,25 +17,7 @@ export async function POST(request: Request) {
 
     trace.log("job-enrich:start", { jobId: job.id, jobTitle: job.jobTitle });
 
-    // Step 1: Extract structured JD (falls back to quick extraction on error)
-    const structuredJd = await extractStructuredJdOnly(job);
-    trace.log("job-enrich:structured-jd:done", { jobId: job.id });
-
-    // Step 2: Enrich company info (falls back to default on error)
-    const companyResearch = await enrichCompanyOnly(job);
-    trace.log("job-enrich:company-research:done", { jobId: job.id });
-
-    const enrichedJob: JobJd = {
-      ...job,
-      companyName: structuredJd.companyName?.trim() || job.companyName,
-      jobTitle: structuredJd.jobTitle?.trim() || job.jobTitle,
-      structuredJd,
-      companyResearch,
-      companyInfo: companyResearch.summary,
-      processingStatus: "scoring",
-      processingError: undefined,
-      updatedAt: createTimestamp(),
-    };
+    const { job: enrichedJob } = await enrichJobWithAi(job, trace);
 
     trace.finish({ jobId: job.id, model });
 
