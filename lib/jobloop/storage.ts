@@ -65,6 +65,11 @@ function dedupeAnalysisResults(results: JobAnalysisResult[]) {
 function normalizeState(state: JobLoopState): JobLoopState {
   return {
     ...state,
+    sourceResumes: state.sourceResumes.map((sourceResume) =>
+      sourceResume.fileUrl?.startsWith("data:application/pdf")
+        ? { ...sourceResume, fileUrl: undefined }
+        : sourceResume,
+    ),
     resumeVersions: state.resumeVersions.slice(0, 3),
     analysisResults: dedupeAnalysisResults(state.analysisResults),
   };

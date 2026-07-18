@@ -15,6 +15,10 @@ import {
   createManualResumeVersion,
 } from "@/lib/jobloop/generators";
 import {
+  createLocalPdfFileUrl,
+  saveLocalResumePdf,
+} from "@/lib/jobloop/pdf-local-storage";
+import {
   deleteResumeVersion,
   getJobLoopState,
   hasPersistedJobLoopState,
@@ -99,21 +103,6 @@ export default function ResumesPage() {
     refresh();
   };
 
-  const readFileAsDataUrl = (file: File) =>
-    new Promise<string>((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => {
-        if (typeof reader.result === "string") {
-          resolve(reader.result);
-          return;
-        }
-
-        reject(new Error("无法读取 PDF 文件内容。"));
-      };
-      reader.onerror = () => reject(new Error("无法读取 PDF 文件内容。"));
-      reader.readAsDataURL(file);
-    });
-
   const handleUploadPdf = async (
     event: React.ChangeEvent<HTMLInputElement>,
   ) => {
@@ -156,20 +145,21 @@ export default function ResumesPage() {
 
       const canUseSupabasePdf =
         Boolean(data.sourceRecordId) && isSupabaseEnabledInBrowser();
-      const dataUrl = canUseSupabasePdf
-        ? undefined
-        : await readFileAsDataUrl(file);
       const { sourceResume, resumeVersion } = createImportedResumeAsset({
         title: uploadTitle.trim() || data.detectedTitle || "PDF 简历",
         content: data.extractedText,
         sourceType: "pdf",
         fileName: data.fileName || file.name,
-        fileUrl: dataUrl,
         sourceRecordId: data.sourceRecordId,
         pdfStoragePath: data.pdfStoragePath,
         pdfPageCount: data.totalPages,
         extractionStatus: "success",
       });
+
+      if (!canUseSupabasePdf) {
+        await saveLocalResumePdf(sourceResume.id, file);
+        sourceResume.fileUrl = createLocalPdfFileUrl(sourceResume.id);
+      }
 
       upsertSourceResume(sourceResume);
       saveResumeVersions([resumeVersion]);

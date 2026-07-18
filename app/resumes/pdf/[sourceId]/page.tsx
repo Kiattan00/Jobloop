@@ -5,26 +5,13 @@ import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { JobLoopShell } from "@/components/jobloop/jobloop-shell";
 import { readApiJson } from "@/lib/jobloop/api-client";
+import {
+  getLocalResumePdf,
+  isLocalPdfFileUrl,
+} from "@/lib/jobloop/pdf-local-storage";
 import { getJobLoopState } from "@/lib/jobloop/storage";
 import { fetchWithSupabaseAuth } from "@/lib/jobloop/supabase-browser";
 import type { SourceResume } from "@/lib/jobloop/types";
-
-function dataUrlToBlob(dataUrl: string) {
-  const [meta, payload] = dataUrl.split(",", 2);
-  if (!meta || !payload) {
-    throw new Error("Invalid data URL");
-  }
-
-  const mime = meta.match(/data:(.*?);base64/u)?.[1] || "application/pdf";
-  const binary = atob(payload);
-  const bytes = new Uint8Array(binary.length);
-
-  for (let index = 0; index < binary.length; index += 1) {
-    bytes[index] = binary.charCodeAt(index);
-  }
-
-  return new Blob([bytes], { type: mime });
-}
 
 export default function ResumePdfPreviewPage() {
   const params = useParams<{ sourceId: string }>();
@@ -49,8 +36,14 @@ export default function ResumePdfPreviewPage() {
 
     const loadPreview = async () => {
       try {
-        if (source.fileUrl?.startsWith("data:application/pdf")) {
-          objectUrl = URL.createObjectURL(dataUrlToBlob(source.fileUrl));
+        if (isLocalPdfFileUrl(source.fileUrl)) {
+          const pdfBlob = await getLocalResumePdf(source.id);
+
+          if (!pdfBlob) {
+            throw new Error("未找到本地 PDF 文件，请重新上传一次。");
+          }
+
+          objectUrl = URL.createObjectURL(pdfBlob);
           setPreviewUrl(objectUrl);
           return;
         }
