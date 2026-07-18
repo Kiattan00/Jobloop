@@ -18,6 +18,7 @@ import type {
 const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
 const DEFAULT_MODEL = "openai/gpt-4o-mini";
 const DEPLOYMENT_FAST_MODE = process.env.AI_FAST_MODE === "true";
+const STRUCTURED_JD_TIMEOUT_MS = 18_000;
 const COMPANY_RESEARCH_TIMEOUT_MS = 25_000;
 const REQUEST_TIMEOUT_MS = 120_000;
 const JD_PAGE_FETCH_TIMEOUT_MS = 18_000;
@@ -191,6 +192,15 @@ function parseJsonPayload<T>(payload: string): T {
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function withTimeout<T>(promise: Promise<T>, ms: number, message: string) {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) => {
+      setTimeout(() => reject(new Error(message)), ms);
+    }),
+  ]);
 }
 
 function shouldRetryOpenRouterError(error: unknown) {
@@ -1418,7 +1428,11 @@ export async function enrichJobWithAi(job: JobJd, trace?: ServerTrace) {
     structuredJd = extractStructuredJdQuick(job);
   } else {
     try {
-      structuredJd = await extractStructuredJd(job);
+      structuredJd = await withTimeout(
+        extractStructuredJd(job),
+        STRUCTURED_JD_TIMEOUT_MS,
+        "Structured JD extraction timed out",
+      );
     } catch (error) {
       trace?.fail("job-enrich:extract-structured-jd", error, {
         jobId: job.id,
