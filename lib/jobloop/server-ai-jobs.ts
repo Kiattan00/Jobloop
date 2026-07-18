@@ -19,7 +19,7 @@ const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
 const DEFAULT_MODEL = "openai/gpt-4o-mini";
 const DEPLOYMENT_FAST_MODE = process.env.AI_FAST_MODE === "true";
 const STRUCTURED_JD_TIMEOUT_MS = 18_000;
-const COMPANY_RESEARCH_TIMEOUT_MS = 25_000;
+const COMPANY_RESEARCH_TIMEOUT_MS = 45_000;
 const REQUEST_TIMEOUT_MS = 120_000;
 const JD_PAGE_FETCH_TIMEOUT_MS = 18_000;
 const OPENROUTER_MAX_RETRIES = 3;
@@ -609,8 +609,7 @@ function buildFallbackCompanyResearch(): CompanyResearch {
     mainBusiness: "待补充",
     keyProducts: [],
     reputation: "待补充",
-    summary:
-      "Current deployment skipped online company enrichment and used the JD text directly.",
+    summary: "联网公司补充暂未完成，本次先基于 JD 文本继续完成评分和分析。",
     searchedAt: createTimestamp(),
     citations: [],
   };
@@ -1044,7 +1043,16 @@ async function buildCompanyResearch(job: JobJd, trace?: ServerTrace) {
             },
           ],
           max_tokens: 2048,
-          tools: [{ type: "openrouter:web_search" }],
+          tools: [
+            {
+              type: "openrouter:web_search",
+              parameters: {
+                engine: "exa",
+                max_results: 5,
+                max_characters: 3000,
+              },
+            },
+          ],
         }),
       });
       clearTimeout(timeout);
@@ -1481,16 +1489,7 @@ export async function enrichJobWithAi(job: JobJd, trace?: ServerTrace) {
       trace?.fail("job-enrich:company-research", error, {
         jobId: job.id,
       });
-      companyResearch = {
-        industry: "待补充",
-        companyScale: "待补充",
-        mainBusiness: "待补充",
-        keyProducts: [],
-        reputation: "待补充",
-        summary: "公司补充信息获取失败，本次分析基于现有 JD 内容完成。",
-        searchedAt: createTimestamp(),
-        citations: [],
-      };
+      companyResearch = buildFallbackCompanyResearch();
     }
   }
 
@@ -1687,16 +1686,7 @@ export async function generateBatchAnalysisWithAi(
             jobId: job.id,
             jobTitle: job.jobTitle,
           });
-          companyResearch = {
-            industry: "待补充",
-            companyScale: "待补充",
-            mainBusiness: "待补充",
-            keyProducts: [],
-            reputation: "待补充",
-            summary: "公司补充信息获取失败，本次分析基于现有 JD 内容完成。",
-            searchedAt: createTimestamp(),
-            citations: [],
-          };
+          companyResearch = buildFallbackCompanyResearch();
         }
       }
 
