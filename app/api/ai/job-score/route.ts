@@ -22,7 +22,14 @@ export async function POST(request: Request) {
       resumeVersions: ResumeVersion[];
     } = await request.json();
 
-    const { result, model } = await scoreJobWithAi(job, resumeVersions, trace);
+    const safeResumeVersions = Array.isArray(resumeVersions)
+      ? resumeVersions
+      : [];
+    const { result, model } = await scoreJobWithAi(
+      job,
+      safeResumeVersions,
+      trace,
+    );
 
     trace.finish({
       jobId: job.id,

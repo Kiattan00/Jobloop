@@ -749,6 +749,38 @@ function pickFallbackResumeVersionId(
   return sorted[0]?.id ?? resumeVersions[0]?.id ?? "";
 }
 
+function buildHeuristicScoreBreakdown(
+  job: JobJd,
+  resumeVersions: ResumeVersion[],
+): ScoreBreakdown {
+  const bestResumeScore = Math.min(
+    100,
+    Math.max(
+      0,
+      ...resumeVersions.map((version) =>
+        scoreResumeVersionForJob(job, version),
+      ),
+    ),
+  );
+  const normalizedJobText = normalizeMatchText(
+    [job.jobTitle, job.jdText, job.structuredJd?.rawSummary]
+      .filter(Boolean)
+      .join(" "),
+  );
+  const hasAiSignal =
+    normalizedJobText.includes("ai") || normalizedJobText.includes("人工智能");
+  const roleMatch =
+    bestResumeScore >= 70 ? 76 : bestResumeScore >= 40 ? 66 : 56;
+
+  return {
+    industryMatch: hasAiSignal ? 72 : 60,
+    companyStrength: job.companyResearch?.summary ? 62 : 50,
+    roleMatch,
+    salaryCompetitiveness: job.structuredJd?.salaryRange ? 65 : 50,
+    growthPotential: hasAiSignal ? 72 : 62,
+  };
+}
+
 function cleanInlineText(text?: string | null) {
   return (text || "")
     .replace(/\s+/g, " ")
@@ -1485,27 +1517,36 @@ export async function enrichJobWithAi(job: JobJd, trace?: ServerTrace) {
 
 function buildFallbackScoreResult(
   job: JobJd,
-  resumeVersions: ResumeVersion[],
+  resumeVersions: ResumeVersion[] = [],
   error: unknown,
 ): JobAnalysisResult {
-  const errorMsg = error instanceof Error ? error.message : "AI 评分暂时不可用";
+  const errorMsg = error instanceof Error ? error.message : "AI score fallback";
+  const safeResumeVersions = Array.isArray(resumeVersions)
+    ? resumeVersions
+    : [];
+  const scoreBreakdown = buildHeuristicScoreBreakdown(job, safeResumeVersions);
+  const matchScore = Math.round(
+    scoreBreakdown.industryMatch * 0.25 +
+      scoreBreakdown.companyStrength * 0.2 +
+      scoreBreakdown.roleMatch * 0.3 +
+      scoreBreakdown.salaryCompetitiveness * 0.15 +
+      scoreBreakdown.growthPotential * 0.1,
+  );
+
   return {
     id: createEntityId("analysis"),
     jobId: job.id,
-    recommendedResumeVersionId: resumeVersions[0]?.id ?? "",
-    matchScore: 0,
-    scoreBreakdown: {
-      industryMatch: 0,
-      companyStrength: 0,
-      roleMatch: 0,
-      salaryCompetitiveness: 0,
-      growthPotential: 0,
-    },
-    applyDecision: "cautious",
-    needsTailoring: false,
-    mainRisk: "AI 评分失败: " + errorMsg,
+    recommendedResumeVersionId: pickFallbackResumeVersionId(
+      job,
+      safeResumeVersions,
+    ),
+    matchScore: clampScore(matchScore),
+    scoreBreakdown,
+    applyDecision: matchScore >= 65 ? "recommend" : "cautious",
+    needsTailoring: true,
+    mainRisk: `AI score model returned an invalid shape, fallback used: ${errorMsg}`,
     summary:
-      "AI 评分暂时不可用，请稍后重试或手动评估。JD 结构化信息和公司补充信息已就绪，可参考现有数据进行判断。",
+      "AI 评分模型本次返回格式异常，系统已基于 JD、公司信息和简历关键词生成保守评分。建议查看详情并人工确认关键匹配点。",
     status: "ready",
     createdAt: new Date().toISOString(),
   };
@@ -1513,9 +1554,12 @@ function buildFallbackScoreResult(
 
 export async function scoreJobWithAi(
   job: JobJd,
-  resumeVersions: ResumeVersion[],
+  resumeVersions: ResumeVersion[] = [],
   trace?: ServerTrace,
 ) {
+  const safeResumeVersions = Array.isArray(resumeVersions)
+    ? resumeVersions
+    : [];
   try {
     const { data, model } = await requestJson<{
       analyses: Array<{
@@ -1539,7 +1583,7 @@ export async function scoreJobWithAi(
           salaryCompetitiveness: 15,
           growthPotential: 10,
         },
-        resumeVersions: resumeVersions.map((version) => ({
+        resumeVersions: safeResumeVersions.map((version) => ({
           id: version.id,
           name: version.name,
           targetDirection: version.targetDirection,
@@ -1579,6 +1623,10 @@ export async function scoreJobWithAi(
       traceStep: "job-score:model",
     });
 
+    if (!Array.isArray(data.analyses)) {
+      throw new Error("Score model response missing analyses array");
+    }
+
     const item = data.analyses.find((analysis) => analysis.jobId === job.id);
 
     if (!item) {
@@ -1586,13 +1634,13 @@ export async function scoreJobWithAi(
     }
 
     return {
-      result: normalizeAnalysisRecord(item, job, resumeVersions),
+      result: normalizeAnalysisRecord(item, job, safeResumeVersions),
       model,
     };
   } catch (error) {
     trace?.fail("job-score:ai-failed", error, { jobId: job.id });
     return {
-      result: buildFallbackScoreResult(job, resumeVersions, error),
+      result: buildFallbackScoreResult(job, safeResumeVersions, error),
       model: getModel(),
     };
   }
