@@ -419,34 +419,45 @@ export default function AnalysesPage() {
         const recommendedVersion = state.resumeVersions.find(
           (v) => v.id === scoreData.result?.recommendedResumeVersionId,
         );
-        const detailController = new AbortController();
-        const detailTimer = setTimeout(() => detailController.abort(), 150_000);
-        const detailResponse = await fetchWithSupabaseAuth(
-          "/api/ai/job-detail",
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
+        try {
+          const detailController = new AbortController();
+          const detailTimer = setTimeout(
+            () => detailController.abort(),
+            185_000,
+          );
+          const detailResponse = await fetchWithSupabaseAuth(
+            "/api/ai/job-detail",
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                job: enrichData.job,
+                result: scoreData.result,
+                resumeVersion: recommendedVersion,
+              }),
+              signal: detailController.signal,
             },
-            body: JSON.stringify({
-              job: enrichData.job,
-              result: scoreData.result,
-              resumeVersion: recommendedVersion,
-            }),
-            signal: detailController.signal,
-          },
-        );
-        clearTimeout(detailTimer);
+          );
+          clearTimeout(detailTimer);
 
-        const detailData = await readApiJson<{
-          detail?: JobDetailAnalysis;
-          aiOutput?: AiOutput;
-          error?: string;
-        }>(detailResponse);
+          const detailData = await readApiJson<{
+            detail?: JobDetailAnalysis;
+            aiOutput?: AiOutput;
+            error?: string;
+          }>(detailResponse);
 
-        if (detailResponse.ok && detailData.detail) {
-          saveDetailAnalysis(detailData.detail, detailData.aiOutput);
-          refreshState();
+          if (detailResponse.ok && detailData.detail) {
+            saveDetailAnalysis(detailData.detail, detailData.aiOutput);
+            refreshState();
+          }
+        } catch (detailError) {
+          console.warn("job-detail generation failed", {
+            jobId: enrichData.job.id,
+            error:
+              detailError instanceof Error ? detailError.message : detailError,
+          });
         }
       } catch (requestError) {
         const isTimeout =
